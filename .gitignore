@@ -1,3 +1,4 @@
 /.venv
 /audio_data
 /test_audio_data
+data.json

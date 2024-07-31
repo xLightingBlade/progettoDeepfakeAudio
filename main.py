@@ -23,8 +23,8 @@ BATCH_SIZE = 32
 DROPOUT_RATIO = 0.25
 FEATURE_USED = 'mfcc'
 MODEL_USED = 'cnn'
-NUMBER_OF_MFCC = 13
-NUMBER_OF_LAYERS = 3
+NUMBER_OF_MFCC = 20
+NUMBER_OF_LAYERS = 1
 
 data = {
     "mappings": [],
@@ -142,7 +142,7 @@ def plot_history_and_save_plot_to_file(history, model_type=MODEL_USED, feature_u
 
     text = f"Learning rate of {LEARNING_RATE}, trained for {EPOCHS} epochs.\nFeature used: {feature_used}"
     plt.figtext(0.5, 0.01, text, wrap=True, horizontalalignment='center', fontsize=12)
-    plot_file_path = (f"plots\\{model_type}_lr{LEARNING_RATE}_epochs{EPOCHS}_{feature_used}"
+    plot_file_path = (f"plots\\{model_type}_lr{LEARNING_RATE}_epochs{EPOCHS}_{feature_used}{NUMBER_OF_MFCC}"
                       f"_layers{NUMBER_OF_LAYERS}.png")
     plt.savefig(plot_file_path)
     plt.show()
@@ -222,7 +222,7 @@ def plot_new_test_results_and_compare_to_old_evaluate(old_test_loss, new_test_lo
     text = (f"Loss and accuracy comparison of model on audio_data vs unseen new audio from same dataset\n"
             f"Feature used: {feature_used}")
     plt.figtext(0.5, 0.01, text, wrap=True, horizontalalignment='center', fontsize=12)
-    plot_file_path = (f"plots\\new_tests_{model_type}_lr{LEARNING_RATE}_epochs{EPOCHS}_{feature_used}"
+    plot_file_path = (f"plots\\new_tests_{model_type}_lr{LEARNING_RATE}_epochs{EPOCHS}_{feature_used}{NUMBER_OF_MFCC}"
                       f"_layers{NUMBER_OF_LAYERS}.png")
     plt.savefig(plot_file_path)
     plt.show()
