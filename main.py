@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
 from sklearn.model_selection import train_test_split
+import keras_tuner
+from keras_tuner import HyperModel
 
 DATASET_PATH = "audio_data"
 TEST_AUDIO_PATH = "test_audio_data"
@@ -17,6 +19,7 @@ DEFAULT_SAMPLE_RATE = 22050
 LABEL_FAKE = 1
 LABEL_REAL = 0
 
+LOSS = "binary_crossentropy"
 LEARNING_RATE = 0.0001
 EPOCHS = 10
 BATCH_SIZE = 32
@@ -24,7 +27,7 @@ DROPOUT_RATIO = 0.25
 FEATURE_USED = 'mfcc'
 MODEL_USED = 'cnn'
 NUMBER_OF_MFCC = 20
-NUMBER_OF_LAYERS = 1
+NUMBER_OF_LAYERS = 2
 
 data = {
     "mappings": [],
@@ -33,6 +36,53 @@ data = {
     "mel_spectrogram": [],
     "file_path": []
 }
+
+
+class MyCnnHyperModel(HyperModel):
+    def __init__(self, input_shape):
+        self.input_shape = input_shape
+
+    def build(self, hp):
+        model = tf.keras.models.Sequential()
+        model.add(tf.keras.Input(shape=self.input_shape))
+        # reg. l2 assieme al dropout: studi mostrano come porta maggior riduzione della loss
+        model.add(tf.keras.layers.Conv2D(filters=hp.Int('first_conv_filters', min_value=32, max_value=128, step=16),
+                                         kernel_size=hp.Choice('first_conv_kernel', values=[2, 5]), activation='relu',
+                                         kernel_regularizer=tf.keras.regularizers.l2(0.001)))
+        model.add(tf.keras.layers.BatchNormalization())
+        model.add(tf.keras.layers.MaxPooling2D((3, 3), strides=(2, 2), padding='same'))
+
+        if NUMBER_OF_LAYERS > 1:
+            model.add(tf.keras.layers.Conv2D(filters=hp.Int('second_conv_filters', min_value=16, max_value=64, step=16),
+                                             kernel_size=hp.Choice('second_conv_kernel', values=[2, 5]),
+                                             activation='relu',
+                                             kernel_regularizer=tf.keras.regularizers.l2(0.001)))
+            model.add(tf.keras.layers.BatchNormalization())
+            model.add(tf.keras.layers.MaxPooling2D((3, 3), strides=(2, 2), padding='same'))
+            if NUMBER_OF_LAYERS > 2:
+                model.add(
+                    tf.keras.layers.Conv2D(filters=hp.Int('third_conv_filters', min_value=16, max_value=64, step=16),
+                                           kernel_size=hp.Choice('third_conv_kernel', values=[2, 5]),
+                                           activation='relu',
+                                           kernel_regularizer=tf.keras.regularizers.l2(0.001)))
+                model.add(tf.keras.layers.BatchNormalization())
+                model.add(tf.keras.layers.MaxPooling2D((2, 2), strides=(2, 2), padding='same'))
+
+        model.add(tf.keras.layers.Flatten())
+        model.add(tf.keras.layers.Dense(units=hp.Int('dense_units', min_value=16, max_value=64, step=16),
+                                        activation='relu'))
+        if hp.Boolean("dropout"):
+            model.add(tf.keras.layers.Dropout(DROPOUT_RATIO))
+
+        # output layer, funzione di attivazione sigmoide per class. binaria, 1 neurone per input feature, quindi uno
+        model.add(tf.keras.layers.Dense(units=1, activation='sigmoid'))
+
+        model.compile(optimizer=tf.optimizers.Adam(hp.Choice('learning_rate', values=[1e-2, 1e-3])),
+                      loss=LOSS,
+                      metrics=["accuracy"])
+        model.summary()
+
+        return model
 
 
 def prepare_dataset(dataset_path, json_path, number_of_mfcc=NUMBER_OF_MFCC, hop_length=512, n_fft=2048):
@@ -81,45 +131,6 @@ def load_input_and_target_data(json_path, input_feature_to_use=FEATURE_USED):
     x = np.array(json_data["mfcc"]) if input_feature_to_use == 'mfcc' else np.array(json_data["mel_spectrogram"])
     y = np.array(json_data["labels"])
     return x, y
-
-
-def build_conv_model_demo(input_shape, loss="binary_crossentropy", learning_rate=0.0001,
-                          number_of_layers=NUMBER_OF_LAYERS):
-    model = tf.keras.models.Sequential()
-    model.add(tf.keras.Input(shape=input_shape))
-    # reg. l2 assieme al dropout: studi mostrano come porta maggior riduzione della loss
-    model.add(tf.keras.layers.Conv2D(64, (3, 3), activation='relu',
-                                     kernel_regularizer=tf.keras.regularizers.l2(0.001)))
-    model.add(tf.keras.layers.BatchNormalization())
-    model.add(tf.keras.layers.MaxPooling2D((3, 3), strides=(2, 2), padding='same'))
-
-    if number_of_layers > 1:
-        model.add(tf.keras.layers.Conv2D(32, (3, 3), activation='relu',
-                                         kernel_regularizer=tf.keras.regularizers.l2(0.001)))
-        model.add(tf.keras.layers.BatchNormalization())
-        model.add(tf.keras.layers.MaxPooling2D((3, 3), strides=(2, 2), padding='same'))
-        if number_of_layers > 2:
-            model.add(tf.keras.layers.Conv2D(32, (2, 2), activation='relu',
-                                             kernel_regularizer=tf.keras.regularizers.l2(0.001)))
-            model.add(tf.keras.layers.BatchNormalization())
-            model.add(tf.keras.layers.MaxPooling2D((2, 2), strides=(2, 2), padding='same'))
-
-    model.add(tf.keras.layers.Flatten())
-    model.add(tf.keras.layers.Dense(64, activation='relu'))
-    model.add(tf.keras.layers.Dropout(DROPOUT_RATIO))
-
-    # output layer, funzione di attivazione sigmoide per class. binaria
-    model.add(tf.keras.layers.Dense(units=1, activation='sigmoid'))
-
-    optimiser = tf.optimizers.Adam(learning_rate=learning_rate)
-
-    model.compile(optimizer=optimiser,
-                  loss=loss,
-                  metrics=["accuracy"])
-
-    model.summary()
-
-    return model
 
 
 def plot_history_and_save_plot_to_file(history, model_type=MODEL_USED, feature_used=FEATURE_USED):
@@ -190,18 +201,29 @@ def pick_random_audio_from_test_folders_and_return_x_and_y_for_testing(feature_u
         return test_inputs, test_targets
 
 
-def cnn_pipeline_from_build_to_test(input_shape, X_train, X_test, y_train, y_test, X_val, y_val):
+def cnn_pipeline_from_tuner_to_test(input_shape, X_train, X_test, y_train, y_test, X_val, y_val):
+    my_hypermodel = MyCnnHyperModel(input_shape)
     model_filepath = f"models\\model_{MODEL_USED}_{FEATURE_USED}{NUMBER_OF_MFCC}_layers{NUMBER_OF_LAYERS}.keras"
-    model = build_conv_model_demo(input_shape, learning_rate=LEARNING_RATE)
-    history = model.fit(X_train, y_train, epochs=EPOCHS,
-                        validation_data=(X_val, y_val), batch_size=BATCH_SIZE,
-                        callbacks=[tf.keras.callbacks.EarlyStopping(patience=2),
-                                   tf.keras.callbacks.ModelCheckpoint(
-                                       filepath=model_filepath,
-                                       monitor='val_loss', mode='min', save_best_only=True
-                                   )])
+    tuner = keras_tuner.RandomSearch(
+        my_hypermodel,
+        objective='val_loss',
+        max_trials=5)
+    stop_early = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=5)
+    print("Beginning tuning process")
+    tuner.search(X_train, y_train, epochs=EPOCHS, validation_data=(X_val, y_val), callbacks=[stop_early])
 
-    test_loss, test_acc = model.evaluate(X_test, y_test)
+    hp = tuner.get_best_hyperparameters()[0]
+    print("Best hyperparameters found were: ", hp.values)
+    hypermodel = tuner.hypermodel.build(hp)
+    history = hypermodel.fit(X_train, y_train, epochs=EPOCHS,
+                             validation_data=(X_val, y_val), batch_size=BATCH_SIZE,
+                             callbacks=[tf.keras.callbacks.EarlyStopping(patience=5),
+                                        tf.keras.callbacks.ModelCheckpoint(
+                                            filepath=model_filepath,
+                                            monitor='val_loss', mode='min', save_best_only=True
+                                        )])
+
+    test_loss, test_acc = hypermodel.evaluate(X_test, y_test)
     print("\nTest loss: {}, test accuracy: {}".format(test_loss, test_acc))
     return history, test_loss, test_acc, model_filepath
 
@@ -221,7 +243,7 @@ def plot_new_test_results_and_compare_to_old_evaluate(old_test_loss, new_test_lo
 
     text = (f"Loss and accuracy comparison of model on audio_data vs unseen new audio from same dataset\n"
             f"Feature used: {feature_used}")
-    plt.figtext(0.5, 0.01, text, wrap=True, horizontalalignment='center', fontsize=12)
+    plt.figtext(0.5, 0.01, text, wrap=True, horizontalalignment='center', fontsize=10)
     plot_file_path = (f"plots\\new_tests_{model_type}_lr{LEARNING_RATE}_epochs{EPOCHS}_{feature_used}{NUMBER_OF_MFCC}"
                       f"_layers{NUMBER_OF_LAYERS}.png")
     plt.savefig(plot_file_path)
@@ -229,14 +251,12 @@ def plot_new_test_results_and_compare_to_old_evaluate(old_test_loss, new_test_lo
 
 
 def main():
+
+    """
     # tf.keras.utils.set_random_seed(1337) attivare per ottenere riproducibilità
     data_path = Path(JSON_PATH)
     if not data_path.exists():
         all_data = prepare_dataset(DATASET_PATH, JSON_PATH)  # commentato, già eseguito una volta. TODO refactor
-        """print(all_data['labels'][0])
-        print(all_data['mfcc'][0])
-        print(all_data['mel_spectrogram'][0])
-        print(all_data['file_path'][0])"""
 
     x, y = load_input_and_target_data(JSON_PATH, FEATURE_USED)
 
@@ -245,8 +265,9 @@ def main():
     print(X_train.shape)
     # (num_segmenti_audio, 13 coefficienti, num canali(che è uno))
     input_shape = (X_train.shape[1], X_train.shape[2], 1)
-    history, test_loss, test_acc, model_filepath = cnn_pipeline_from_build_to_test(input_shape, X_train, X_test, y_train, y_test, X_val,
-                                                                   y_val)
+    history, test_loss, test_acc, model_filepath = cnn_pipeline_from_tuner_to_test(input_shape, X_train, X_test,
+                                                                                   y_train, y_test, X_val,
+                                                                                   y_val)
 
     # un altro giro di evaluate su dati mai visti. Prelevati 300 di ognuno e etichettati per testare il modello
     test_inputs, test_targets = pick_random_audio_from_test_folders_and_return_x_and_y_for_testing()
@@ -255,6 +276,10 @@ def main():
     print("\nLoss su nuovi dati: {}, Accuracy su nuovi dati: {}".format(new_test_loss, new_test_acc))
     plot_history_and_save_plot_to_file(history)
     plot_new_test_results_and_compare_to_old_evaluate(test_loss, new_test_loss, test_acc, new_test_acc)
+    """
+    model = tf.keras.models.load_model("models\\model_cnn_mfcc20_layers1.keras")
+    print(json.loads(json.dumps(model.get_config())))
+    print(tf.keras.backend.eval(model.optimizer.learning_rate))
 
 
 if __name__ == "__main__":
