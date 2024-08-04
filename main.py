@@ -160,7 +160,7 @@ def plot_history_and_save_plot_to_file(history, model_type=MODEL_USED, feature_u
 
 
 def pick_random_audio_from_test_folders_and_return_x_and_y_for_testing(feature_used=FEATURE_USED,
-                                                                       number_of_files_picked=300):
+                                                                       number_of_files_picked=1000):
     test_data = {
         "label": [],
         "feature_used": []
