@@ -20,14 +20,14 @@ LABEL_FAKE = 1
 LABEL_REAL = 0
 
 LOSS = "binary_crossentropy"
-LEARNING_RATE = 0.0001
-EPOCHS = 10
+LEARNING_RATE = 0.001
+EPOCHS = 20
 BATCH_SIZE = 32
 DROPOUT_RATIO = 0.25
 FEATURE_USED = 'mfcc'
 MODEL_USED = 'cnn'
 NUMBER_OF_MFCC = 20
-NUMBER_OF_LAYERS = 2
+NUMBER_OF_LAYERS = 3
 
 data = {
     "mappings": [],
@@ -77,7 +77,7 @@ class MyCnnHyperModel(HyperModel):
         # output layer, funzione di attivazione sigmoide per class. binaria, 1 neurone per input feature, quindi uno
         model.add(tf.keras.layers.Dense(units=1, activation='sigmoid'))
 
-        model.compile(optimizer=tf.optimizers.Adam(hp.Choice('learning_rate', values=[1e-2, 1e-3])),
+        model.compile(optimizer=tf.optimizers.Adam(learning_rate = LEARNING_RATE),
                       loss=LOSS,
                       metrics=["accuracy"])
         model.summary()
@@ -203,7 +203,7 @@ def pick_random_audio_from_test_folders_and_return_x_and_y_for_testing(feature_u
 
 def cnn_pipeline_from_tuner_to_test(input_shape, X_train, X_test, y_train, y_test, X_val, y_val):
     my_hypermodel = MyCnnHyperModel(input_shape)
-    model_filepath = f"models\\model_{MODEL_USED}_{FEATURE_USED}{NUMBER_OF_MFCC}_layers{NUMBER_OF_LAYERS}.keras"
+    model_filepath = f"models\\model_{MODEL_USED}_{FEATURE_USED}{NUMBER_OF_MFCC}_layers{NUMBER_OF_LAYERS}_lr{LEARNING_RATE}.keras"
     tuner = keras_tuner.RandomSearch(
         my_hypermodel,
         objective='val_loss',
@@ -251,7 +251,9 @@ def plot_new_test_results_and_compare_to_old_evaluate(old_test_loss, new_test_lo
 
 
 def main():
-
+    """
+    model = tf.keras.models.load_model("models\\model_cnn_mfcc20_layers3_lr0.001.keras")
+    print(tf.keras.backend.eval(model.optimizer.learning_rate))
     """
     # tf.keras.utils.set_random_seed(1337) attivare per ottenere riproducibilità
     data_path = Path(JSON_PATH)
@@ -276,8 +278,7 @@ def main():
     print("\nLoss su nuovi dati: {}, Accuracy su nuovi dati: {}".format(new_test_loss, new_test_acc))
     plot_history_and_save_plot_to_file(history)
     plot_new_test_results_and_compare_to_old_evaluate(test_loss, new_test_loss, test_acc, new_test_acc)
-    """
-    model = tf.keras.models.load_model("models\\model_cnn_mfcc20_layers1.keras")
+    model = tf.keras.models.load_model("models\\model_cnn_mfcc20_layers1_lr0.001.keras")
     print(json.loads(json.dumps(model.get_config())))
     print(tf.keras.backend.eval(model.optimizer.learning_rate))
 
