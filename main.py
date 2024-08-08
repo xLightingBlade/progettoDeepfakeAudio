@@ -2,6 +2,7 @@ import json
 import os
 import random
 from pathlib import Path
+import resnet
 
 import librosa
 import matplotlib.pyplot as plt
@@ -20,14 +21,14 @@ LABEL_FAKE = 1
 LABEL_REAL = 0
 
 LOSS = "binary_crossentropy"
-LEARNING_RATE = 0.001
+LEARNING_RATE = 0.0001
 EPOCHS = 20
 BATCH_SIZE = 32
 DROPOUT_RATIO = 0.25
-FEATURE_USED = 'mfcc'
-MODEL_USED = 'cnn'
+FEATURE_USED = 'mel_spectrogram'
+MODEL_USED = 'resnet'
 NUMBER_OF_MFCC = 20
-NUMBER_OF_LAYERS = 3
+NUMBER_OF_LAYERS = 1
 
 data = {
     "mappings": [],
@@ -77,7 +78,7 @@ class MyCnnHyperModel(HyperModel):
         # output layer, funzione di attivazione sigmoide per class. binaria, 1 neurone per input feature, quindi uno
         model.add(tf.keras.layers.Dense(units=1, activation='sigmoid'))
 
-        model.compile(optimizer=tf.optimizers.Adam(learning_rate = LEARNING_RATE),
+        model.compile(optimizer=tf.optimizers.Adam(learning_rate=LEARNING_RATE),
                       loss=LOSS,
                       metrics=["accuracy"])
         model.summary()
@@ -153,7 +154,8 @@ def plot_history_and_save_plot_to_file(history, model_type=MODEL_USED, feature_u
 
     text = f"Learning rate of {LEARNING_RATE}, trained for {EPOCHS} epochs.\nFeature used: {feature_used}"
     plt.figtext(0.5, 0.01, text, wrap=True, horizontalalignment='center', fontsize=12)
-    plot_file_path = (f"plots\\{model_type}_lr{LEARNING_RATE}_epochs{EPOCHS}_{feature_used}{NUMBER_OF_MFCC}"
+    plot_file_path = (f"plots\\{model_type}_lr{LEARNING_RATE}_epochs{EPOCHS}_{feature_used}"
+                      f"{NUMBER_OF_MFCC if FEATURE_USED == 'mfcc' else ''}.png"
                       f"_layers{NUMBER_OF_LAYERS}.png")
     plt.savefig(plot_file_path)
     plt.show()
@@ -244,17 +246,18 @@ def plot_new_test_results_and_compare_to_old_evaluate(old_test_loss, new_test_lo
     text = (f"Loss and accuracy comparison of model on audio_data vs unseen new audio from same dataset\n"
             f"Feature used: {feature_used}")
     plt.figtext(0.5, 0.01, text, wrap=True, horizontalalignment='center', fontsize=10)
-    plot_file_path = (f"plots\\new_tests_{model_type}_lr{LEARNING_RATE}_epochs{EPOCHS}_{feature_used}{NUMBER_OF_MFCC}"
+    plot_file_path = (f"plots\\new_tests_{model_type}_lr{LEARNING_RATE}_epochs{EPOCHS}_{feature_used}"
+                      f"{NUMBER_OF_MFCC if FEATURE_USED == 'mfcc' else ''}.png"
                       f"_layers{NUMBER_OF_LAYERS}.png")
     plt.savefig(plot_file_path)
     plt.show()
 
 
+def check_if_resnet(feature, model):
+    return feature == 'mel_spectrogram' and model == 'resnet'
+
+
 def main():
-    """
-    model = tf.keras.models.load_model("models\\model_cnn_mfcc20_layers3_lr0.001.keras")
-    print(tf.keras.backend.eval(model.optimizer.learning_rate))
-    """
     # tf.keras.utils.set_random_seed(1337) attivare per ottenere riproducibilità
     data_path = Path(JSON_PATH)
     if not data_path.exists():
@@ -267,20 +270,39 @@ def main():
     print(X_train.shape)
     # (num_segmenti_audio, 13 coefficienti, num canali(che è uno))
     input_shape = (X_train.shape[1], X_train.shape[2], 1)
-    history, test_loss, test_acc, model_filepath = cnn_pipeline_from_tuner_to_test(input_shape, X_train, X_test,
-                                                                                   y_train, y_test, X_val,
-                                                                                   y_val)
+
+    # Refactor necessario, codice duplicato
+    if check_if_resnet(FEATURE_USED, MODEL_USED):
+        res = resnet.ResNetModel(input_shape=input_shape, learning_rate=LEARNING_RATE)
+        resnet_model = res.build_res_network()
+        model_filepath = (f"models\\model_{MODEL_USED}_lr{LEARNING_RATE}_epochs{EPOCHS}_{FEATURE_USED}"
+                          f"{NUMBER_OF_MFCC if FEATURE_USED == 'mfcc' else ''}"
+                          f"_layers{NUMBER_OF_LAYERS}.keras")
+        history = resnet_model.fit(X_train, y_train, epochs=EPOCHS,
+                                   validation_data=(X_val, y_val), batch_size=BATCH_SIZE,
+                                   callbacks=[tf.keras.callbacks.EarlyStopping(patience=5),
+                                              tf.keras.callbacks.ModelCheckpoint(
+                                                  filepath=model_filepath,
+                                                  monitor='val_loss', mode='min', save_best_only=True
+                                              )])
+        test_loss, test_acc = resnet_model.evaluate(X_test, y_test)
+    else:
+        history, test_loss, test_acc, model_filepath = cnn_pipeline_from_tuner_to_test(input_shape, X_train, X_test,
+                                                                                       y_train, y_test, X_val,
+                                                                                       y_val)
 
     # un altro giro di evaluate su dati mai visti. Prelevati 300 di ognuno e etichettati per testare il modello
-    test_inputs, test_targets = pick_random_audio_from_test_folders_and_return_x_and_y_for_testing()
+    test_inputs, test_targets = pick_random_audio_from_test_folders_and_return_x_and_y_for_testing(FEATURE_USED, 1000)
     model = tf.keras.models.load_model(model_filepath)
     new_test_loss, new_test_acc = model.evaluate(test_inputs, test_targets)
     print("\nLoss su nuovi dati: {}, Accuracy su nuovi dati: {}".format(new_test_loss, new_test_acc))
     plot_history_and_save_plot_to_file(history)
     plot_new_test_results_and_compare_to_old_evaluate(test_loss, new_test_loss, test_acc, new_test_acc)
+    """
     model = tf.keras.models.load_model("models\\model_cnn_mfcc20_layers1_lr0.001.keras")
     print(json.loads(json.dumps(model.get_config())))
     print(tf.keras.backend.eval(model.optimizer.learning_rate))
+    """
 
 
 if __name__ == "__main__":
