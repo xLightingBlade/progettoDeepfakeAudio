@@ -1,18 +1,17 @@
 # progettoDeepfakeAudio
 Primo scheletro del progetto di rilevamento audio deepfake.\
-Cartella audio_data: circa 11k file audio, divisi in fake e real. Tutti utilizzati per popolare il json dei dati. Usati anche per l'apprendimento, divisi in training, validation e test.\
+Dataset utilizzato: FakeOrReal for-2sec https://bil.eecs.yorku.ca/datasets/ \
+Modelli implementati: CNN a 1/2/3 layer convolutivi, ResNet18 leggermente modificato secondo fig 4e del paper https://arxiv.org/pdf/1603.05027v2 \
+Cartella audio_data: circa 14k file audio, divisi a metà in fake e real, sottoposti a due giri di train_test_split per \
 \
-Cartella test_audio_data: 1100 file audio non utilizzati in alcun punto del codice, provenienti dallo stesso dataset. Divisi in fake e real, al momento ne vengono prelevati 300 per classe per fare predizioni
+Cartella test_audio_data: 4000 file audio (2k e 2k) non utilizzati in alcun punto del codice, provenienti dallo stesso dataset. Divisi in fake e real, ne vengono prelevati 1000 ciascuno per fare predizioni
 e comparare la performance dei modelli\
 \
 Cartella plots: grafici delle metriche dei vari modelli\
 \
 Cartella models: modelli keras salvati\
 \
-main.py primo abbozzo di progetto, ancora nessun effort di refactoring o simili. Per ora un solo modello addestrato, una rete convoluzionale\
+main.py Prima versione file principale del progetto. Necessita di lavoro di refactoring\
+resnset.py Implementazione ResNet18\
 \
-Possibili passi successivi: 
-Fase preliminare di data augmentation e/o grafici di esempio delle feature usate (mfcc / mel spectrogram);\
-Creazione e training di modelli diversi ispirandosi ai vari paper sull'argomento (LCNN/LSTM/RNN/GMM/RawNet);\
-Ricerca di possibili sintomi di overfitting/underfitting;\
-Tuning degli iperparametri quali learning rate/numero di epoche di apprendimento;\
+Eseguito tuning su diversi iperparametri usando keras_tuner
