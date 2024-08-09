@@ -7,7 +7,10 @@ Cartella audio_data: circa 14k file audio, divisi a metà in fake e real, sottop
 Cartella test_audio_data: 4000 file audio (2k e 2k) non utilizzati in alcun punto del codice, provenienti dallo stesso dataset. Divisi in fake e real, ne vengono prelevati 1000 ciascuno per fare predizioni
 e comparare la performance dei modelli\
 \
-Cartella plots: grafici delle metriche dei vari modelli\
+Cartella plots: Per ogni run eseguita vengono salvati due grafici: quelli il cui nome inizia col nome del modello sono grafici delle curve di apprendimento in termini di accuracy e di loss. Le utilizziamo
+per controllare se il modello risultante è un buon fit.\
+I grafici il cui nome inizia per "new_tests..." sono grafici che mostrano la performance del modello in due diversi evaluate(), il primo con la partizione di testing fatta col train_test_split e il secondo
+con altri file audio provenienti dallo stesso dataset\
 \
 Cartella models: modelli keras salvati\
 \
