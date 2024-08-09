@@ -22,11 +22,11 @@ LABEL_REAL = 0
 
 LOSS = "binary_crossentropy"
 LEARNING_RATE = 0.0001
-EPOCHS = 20
+EPOCHS = 25
 BATCH_SIZE = 32
 DROPOUT_RATIO = 0.25
 FEATURE_USED = 'mel_spectrogram'
-MODEL_USED = 'resnet'
+MODEL_USED = 'cnn'
 NUMBER_OF_MFCC = 20
 NUMBER_OF_LAYERS = 1
 
@@ -35,7 +35,6 @@ data = {
     "labels": [],
     "mfcc": [],
     "mel_spectrogram": [],
-    "file_path": []
 }
 
 
@@ -111,7 +110,6 @@ def prepare_dataset(dataset_path, json_path, number_of_mfcc=NUMBER_OF_MFCC, hop_
                 data["mfcc"].append(mfcc_list.T.tolist())
                 # provo ad estrarre anche gli spettrogrammi mel-scaled
                 data["mel_spectrogram"].append(mel_spectrogram.T.tolist())
-                data["file_path"].append(file_path)
                 print(f"{file_path} is labeled {label_name}({label})")
 
     print("Data labeling completed")
@@ -205,12 +203,13 @@ def pick_random_audio_from_test_folders_and_return_x_and_y_for_testing(feature_u
 
 def cnn_pipeline_from_tuner_to_test(input_shape, X_train, X_test, y_train, y_test, X_val, y_val):
     my_hypermodel = MyCnnHyperModel(input_shape)
-    model_filepath = f"models\\model_{MODEL_USED}_{FEATURE_USED}{NUMBER_OF_MFCC}_layers{NUMBER_OF_LAYERS}_lr{LEARNING_RATE}.keras"
+    model_filepath = (f"models\\model_{MODEL_USED}_{FEATURE_USED}{NUMBER_OF_MFCC if FEATURE_USED == 'mfcc' else ''}"
+                      f"_layers{NUMBER_OF_LAYERS}_lr{LEARNING_RATE}.keras")
     tuner = keras_tuner.RandomSearch(
         my_hypermodel,
         objective='val_loss',
         max_trials=5)
-    stop_early = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=5)
+    stop_early = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=3)
     print("Beginning tuning process")
     tuner.search(X_train, y_train, epochs=EPOCHS, validation_data=(X_val, y_val), callbacks=[stop_early])
 
@@ -219,7 +218,7 @@ def cnn_pipeline_from_tuner_to_test(input_shape, X_train, X_test, y_train, y_tes
     hypermodel = tuner.hypermodel.build(hp)
     history = hypermodel.fit(X_train, y_train, epochs=EPOCHS,
                              validation_data=(X_val, y_val), batch_size=BATCH_SIZE,
-                             callbacks=[tf.keras.callbacks.EarlyStopping(patience=5),
+                             callbacks=[tf.keras.callbacks.EarlyStopping(patience=3),
                                         tf.keras.callbacks.ModelCheckpoint(
                                             filepath=model_filepath,
                                             monitor='val_loss', mode='min', save_best_only=True
@@ -280,7 +279,7 @@ def main():
                           f"_layers{NUMBER_OF_LAYERS}.keras")
         history = resnet_model.fit(X_train, y_train, epochs=EPOCHS,
                                    validation_data=(X_val, y_val), batch_size=BATCH_SIZE,
-                                   callbacks=[tf.keras.callbacks.EarlyStopping(patience=5),
+                                   callbacks=[tf.keras.callbacks.EarlyStopping(patience=3),
                                               tf.keras.callbacks.ModelCheckpoint(
                                                   filepath=model_filepath,
                                                   monitor='val_loss', mode='min', save_best_only=True
