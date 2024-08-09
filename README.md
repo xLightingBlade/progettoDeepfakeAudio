@@ -14,4 +14,5 @@ Cartella models: modelli keras salvati\
 main.py Prima versione file principale del progetto. Necessita di lavoro di refactoring\
 resnset.py Implementazione ResNet18\
 \
-Eseguito tuning su diversi iperparametri usando keras_tuner
+Eseguito tuning su diversi iperparametri usando keras_tuner\
+Prossimo passo: Non utilizzare più il json salvato localmente, è troppo pesante, impiega svariati minuti a caricare e può andare in memoryerror
