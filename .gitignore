@@ -1,5 +1,7 @@
 /.venv
 /audio_data
 /test_audio_data
-*.json
+data_lfcc.json
+data_mel_spectrogram.json
+data_mfcc.json
 /untitled_project
