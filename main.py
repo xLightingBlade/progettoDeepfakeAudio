@@ -6,7 +6,6 @@ from torch import Tensor, from_numpy
 import resnet
 
 import librosa
-import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
@@ -23,10 +22,10 @@ LABEL_REAL = 0
 
 LOSS = "binary_crossentropy"
 LEARNING_RATE = 0.0001
-EPOCHS = 99
+EPOCHS = 50
 BATCH_SIZE = 32
 DROPOUT_RATIO = 0.25
-FEATURE_USED = 'lfcc'
+FEATURE_USED = 'mel_spectrogram'
 MODEL_USED = 'resnet'
 NUMBER_OF_MFCC = 20
 NUMBER_OF_LFCC = 40
@@ -40,7 +39,7 @@ data = {
 JSON_PATH = f"data_{FEATURE_USED}.json"
 MODEL_PATH = (f"models\\model_{MODEL_USED}_{FEATURE_USED}"
               f"{NUMBER_OF_MFCC if FEATURE_USED == 'mfcc' else NUMBER_OF_LFCC if FEATURE_USED == 'lfcc' else ''}"
-              f"_layers{NUMBER_OF_LAYERS}_lr{LEARNING_RATE}_epochs{EPOCHS}.keras")
+              f"_layers{NUMBER_OF_LAYERS if MODEL_USED is not 'resnet' else ''}_lr{LEARNING_RATE}_epochs{EPOCHS}.keras")
 
 
 class MyCnnHyperModel(HyperModel):
@@ -309,7 +308,7 @@ def plot_loss_and_accuracy(loss, acc):
     plt.savefig(plot_file_path)
     plt.show()
 
-
+# TODO : I modelli con 99 epoche sono quelli post modifica alle percentuali dei traintestsplit, prima erano 0.25, 0.2
 def main():
     test_loss = None
     test_acc = None
