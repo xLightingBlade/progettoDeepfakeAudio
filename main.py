@@ -6,6 +6,7 @@ from torch import Tensor, from_numpy
 import resnet
 
 import librosa
+import audiomentations
 import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
@@ -13,8 +14,6 @@ from sklearn.model_selection import train_test_split
 import keras_tuner
 from keras_tuner import HyperModel
 
-DATASET_PATH = "audio_data"
-TEST_AUDIO_PATH = "test_audio_data"
 DEFAULT_SAMPLE_RATE = 22050
 
 LABEL_FAKE = 1
@@ -22,24 +21,29 @@ LABEL_REAL = 0
 
 LOSS = "binary_crossentropy"
 LEARNING_RATE = 0.0001
-EPOCHS = 50
+EPOCHS = 100
 BATCH_SIZE = 32
 DROPOUT_RATIO = 0.25
-FEATURE_USED = 'mel_spectrogram'
-MODEL_USED = 'resnet'
+FEATURE_USED = 'mfcc'
+MODEL_USED = 'cnn'
 NUMBER_OF_MFCC = 20
 NUMBER_OF_LFCC = 40
-NUMBER_OF_LAYERS = 3
+NUMBER_OF_LAYERS = 4
 
-data = {
-    "mappings": [],
-    "labels": [],
-    "input_feature": []
-}
-JSON_PATH = f"data_{FEATURE_USED}.json"
-MODEL_PATH = (f"models\\model_{MODEL_USED}_{FEATURE_USED}"
+TRAINING_DATA_PATH = "training"
+VALIDATION_DATA_PATH = "validation"
+TESTING_DATA_PATH = "testing"
+NEW_AUDIO_DATA = "new_test_audio_data"
+
+DATA_AUGMENTATION = True
+TRAINING_JSON_PATH = f"augmented_data_{FEATURE_USED}.json" if DATA_AUGMENTATION is True else f"data_{FEATURE_USED}.json"
+VALIDATION_JSON_PATH = f"val_data.json"
+TESTING_JSON_PATH = f"test_data.json"
+MODEL_PATH = (f"models_with_augmentation\\model_{MODEL_USED}_{FEATURE_USED}"
               f"{NUMBER_OF_MFCC if FEATURE_USED == 'mfcc' else NUMBER_OF_LFCC if FEATURE_USED == 'lfcc' else ''}"
               f"_layers{NUMBER_OF_LAYERS if MODEL_USED is not 'resnet' else ''}_lr{LEARNING_RATE}_epochs{EPOCHS}.keras")
+
+PLOT_FOLDER = "plots_with_augmentation"
 
 
 class MyCnnHyperModel(HyperModel):
@@ -74,6 +78,15 @@ class MyCnnHyperModel(HyperModel):
                                            kernel_regularizer=tf.keras.regularizers.l2(0.001)))
                 model.add(tf.keras.layers.BatchNormalization())
                 model.add(tf.keras.layers.MaxPooling2D((2, 2), strides=(2, 2), padding='same'))
+            if NUMBER_OF_LAYERS > 3:
+                model.add(
+                    tf.keras.layers.Conv2D(filters=hp.Int('fourth_conv_filters', min_value=16, max_value=64, step=16),
+                                           kernel_size=hp.Choice('fourth_conv_kernel', values=[2, 5]),
+                                           activation='relu',
+                                           padding='same',
+                                           kernel_regularizer=tf.keras.regularizers.l2(0.001)))
+                model.add(tf.keras.layers.BatchNormalization())
+                model.add(tf.keras.layers.MaxPooling2D((2, 2), strides=(2, 2), padding='same'))
 
         model.add(tf.keras.layers.Flatten())
         model.add(tf.keras.layers.Dense(units=hp.Int('dense_units', min_value=16, max_value=64, step=16),
@@ -92,52 +105,106 @@ class MyCnnHyperModel(HyperModel):
         return model
 
 
-def prepare_dataset(dataset_path, json_path, number_of_mfcc=NUMBER_OF_MFCC, hop_length=512, n_fft=2048):
-    for root, dirs, files in os.walk(dataset_path):
-        if root is not dataset_path:
+# metodi che creano i json con i dati estratti. Solo il training set viene aumentato, per prevenire data leakage
+def extract_and_label(data_path, data_structure, is_training_data,
+                      number_of_lfcc=NUMBER_OF_LFCC, number_of_mfcc=NUMBER_OF_MFCC, hop_length=512, n_fft=2048):
+    for root, dirs, files in os.walk(data_path):
+        if root is not data_path:
+            augmented_audio = []
             label_name = root.split("\\")[-1]  # l'output è una lista ["training", "fake"] e poi ["training","real"]
             # avendo solo due categorie si poteva magari fare senza impostare questo ciclo, però manteniamo flessibiltà
             print(f"Processing {label_name} audio files")
-            data["mappings"].append(label_name)
+            data_structure["mappings"].append(label_name)
             for file in files:
                 file_path = os.path.join(root, file)
                 audio_signal, sample_rate = librosa.load(file_path, sr=DEFAULT_SAMPLE_RATE)
-                # i file audio di questo dataset sono tutti troncati a 2 secondi quindi hanno la stessa forma
-
-                # coefficienti (mfcc) della traccia audio
+                if is_training_data and DATA_AUGMENTATION:
+                    gaussian_noise = np.random.normal(0, audio_signal.std(), audio_signal.size)
+                    noisy_audio = audio_signal + gaussian_noise
+                    augmented_audio.append(noisy_audio)
+                    pitch_shifted_audio = librosa.effects.pitch_shift(audio_signal, sr=sample_rate,
+                                                                      n_steps=4)  #4 semitoni in su
+                    augmented_audio.append(pitch_shifted_audio)
+                    band_pass_filter = audiomentations.BandPassFilter(p=1)
+                    filtered_audio = band_pass_filter(audio_signal, sample_rate=sample_rate)
+                    augmented_audio.append(filtered_audio)
 
                 label = LABEL_REAL if label_name == 'real' else LABEL_FAKE
-                data["labels"].append(label)
-                # librosa restituisce gli mfcc come un array 2d, noi vorremmo 1d quindi facciamo la trasposta
+
                 if FEATURE_USED == 'mel_spectrogram':
                     mel_spectrogram = librosa.feature.melspectrogram(y=audio_signal, sr=DEFAULT_SAMPLE_RATE,
                                                                      n_fft=n_fft, hop_length=hop_length)
-                    data["input_feature"].append(mel_spectrogram.T.tolist())
+                    data_structure["input_feature"].append(mel_spectrogram.T.tolist())
+                    data_structure["labels"].append(label)
+                    for audio in augmented_audio:
+                        mspec = librosa.feature.melspectrogram(y=audio, sr=DEFAULT_SAMPLE_RATE,
+                                                               n_fft=n_fft, hop_length=hop_length)
+                        data_structure["input_feature"].append(mspec.T.tolist())
+                        data_structure["labels"].append(label)
+
                 elif FEATURE_USED == 'mfcc':
                     mfcc_list = librosa.feature.mfcc(y=audio_signal, n_mfcc=number_of_mfcc,
                                                      n_fft=n_fft, hop_length=hop_length)
-                    data["input_feature"].append(mfcc_list.T.tolist())
+                    data_structure["input_feature"].append(mfcc_list.T.tolist())
+                    data_structure["labels"].append(label)
+                    for audio in augmented_audio:
+                        mfcc = librosa.feature.mfcc(y=audio, n_mfcc=number_of_mfcc,
+                                                    n_fft=n_fft, hop_length=hop_length)
+                        data_structure["input_feature"].append(mfcc.T.tolist())
+                        data_structure["labels"].append(label)
+
                 elif FEATURE_USED == 'lfcc':
-                    lfcc_transform = LFCC(sample_rate=sample_rate, n_lfcc=NUMBER_OF_LFCC,
+                    lfcc_transform = LFCC(sample_rate=sample_rate, n_lfcc=number_of_lfcc,
                                           speckwargs={
                                               "n_fft": n_fft, "hop_length": hop_length
                                           })
                     lfccs = lfcc_transform(from_numpy(audio_signal))
-                    data['input_feature'].append(Tensor.tolist(lfccs))
+                    data_structure['input_feature'].append(Tensor.tolist(lfccs))
+                    data_structure["labels"].append(label)
+                    for audio in augmented_audio:
+                        lfcc = lfcc_transform(from_numpy(audio))
+                        data_structure['input_feature'].append(Tensor.tolist(lfcc))
+                        data_structure["labels"].append(label)
 
-                # provo ad estrarre anche gli spettrogrammi mel-scaled
                 print(f"{file_path} is labeled {label_name}({label})")
 
-    print("Data labeling completed")
-    with open(json_path, "w") as f:
-        print("Saving data in json")
-        json.dump(data, f, indent=4)
-        print("Data saved")
-
-    return data
+    return data_structure
 
 
-def load_input_and_target_data(json_path, input_feature_to_use=FEATURE_USED):
+def save_json(json_path, data_structure):
+    print(f"Saving {json_path}")
+    with open(json_path, "w") as outfile:
+        json.dump(data_structure, outfile, indent=4)
+        print("data saved")
+
+
+def prepare_dataset(number_of_lfcc=NUMBER_OF_LFCC, number_of_mfcc=NUMBER_OF_MFCC, hop_length=512, n_fft=2048,
+                    with_data_augmentation=True):
+    training_data = {
+        "mappings": [],
+        "labels": [],
+        "input_feature": []
+    }
+    validation_data = {
+        "mappings": [],
+        "labels": [],
+        "input_feature": []
+    }
+    testing_data = {
+        "mappings": [],
+        "labels": [],
+        "input_feature": []
+    }
+    training_data = extract_and_label(TRAINING_DATA_PATH, training_data, True)
+    validation_data = extract_and_label(VALIDATION_DATA_PATH, validation_data, False)
+    testing_data = extract_and_label(TESTING_DATA_PATH, testing_data, False)
+
+    save_json(TRAINING_DATA_PATH, training_data)
+    save_json(VALIDATION_DATA_PATH, validation_data)
+    save_json(TESTING_DATA_PATH, testing_data)
+
+
+def load_input_and_target_data(json_path):
     print("Loading data from data json")
     with open(json_path, "r") as f:
         json_data = json.load(f)
@@ -168,24 +235,24 @@ def plot_history_and_save_plot_to_file(history, model_type=MODEL_USED, feature_u
 
     text = f"Learning rate of {LEARNING_RATE}, trained for {EPOCHS} epochs.\nFeature used: {feature_used}"
     plt.figtext(0.5, 0.01, text, wrap=True, horizontalalignment='center', fontsize=12)
-    plot_file_path = (f"plots\\{model_type}_lr{LEARNING_RATE}_epochs{EPOCHS}_{feature_used}"
+    plot_file_path = (f"{PLOT_FOLDER}\\{model_type}_lr{LEARNING_RATE}_epochs{EPOCHS}_{feature_used}"
                       f"{NUMBER_OF_MFCC if FEATURE_USED == 'mfcc' else NUMBER_OF_LFCC if FEATURE_USED == 'lfcc' else ''}.png"
                       f"_layers{NUMBER_OF_LAYERS if FEATURE_USED != 'resnet' else ''}.png")
     plt.savefig(plot_file_path)
     plt.show()
 
 
-def pick_random_audio_from_test_folders_and_return_x_and_y_for_testing(feature_used=FEATURE_USED):
+def pick_audio_from_test_folders_and_return_x_and_y_for_testing(feature_used=FEATURE_USED):
     test_data = {
         "label": [],
         "feature_used": []
     }
-    fake_files = os.listdir(f"{TEST_AUDIO_PATH}\\fake")
-    real_files = os.listdir(f"{TEST_AUDIO_PATH}\\real")
+    fake_files = os.listdir(f"{NEW_AUDIO_DATA}\\fake")
+    real_files = os.listdir(f"{NEW_AUDIO_DATA}\\real")
 
     print("Picking new fake files")
     for file in fake_files:
-        audio, sr = librosa.load(f"{TEST_AUDIO_PATH}\\fake\\{file}", sr=DEFAULT_SAMPLE_RATE)
+        audio, sr = librosa.load(f"{NEW_AUDIO_DATA}\\fake\\{file}", sr=DEFAULT_SAMPLE_RATE)
         if len(audio) >= DEFAULT_SAMPLE_RATE * 2:
             audio = audio[:DEFAULT_SAMPLE_RATE * 2]
         else:
@@ -210,7 +277,7 @@ def pick_random_audio_from_test_folders_and_return_x_and_y_for_testing(feature_u
 
     print("Picking new real files")
     for file in real_files:
-        audio, sr = librosa.load(f"{TEST_AUDIO_PATH}\\real\\{file}", sr=DEFAULT_SAMPLE_RATE)
+        audio, sr = librosa.load(f"{NEW_AUDIO_DATA}\\real\\{file}", sr=DEFAULT_SAMPLE_RATE)
         if len(audio) >= DEFAULT_SAMPLE_RATE * 2:
             audio = audio[:DEFAULT_SAMPLE_RATE * 2]  # dovrebbe restituire 2 secondi di audio.
         else:
@@ -245,7 +312,7 @@ def cnn_pipeline_from_tuner_to_test(input_shape, X_train, X_test, y_train, y_tes
     my_hypermodel = MyCnnHyperModel(input_shape)
     model_filepath = (f"models\\model_{MODEL_USED}_{FEATURE_USED}"
                       f"{NUMBER_OF_MFCC if FEATURE_USED == 'mfcc' else NUMBER_OF_LFCC if FEATURE_USED == 'lfcc' else ''}"
-                      f"_layers{NUMBER_OF_LAYERS}_lr{LEARNING_RATE}.keras")
+                      f"_layers{NUMBER_OF_LAYERS}_lr{LEARNING_RATE}_epochs{EPOCHS}.keras")
     tuner = keras_tuner.RandomSearch(
         my_hypermodel,
         objective='val_loss',
@@ -286,7 +353,7 @@ def plot_new_test_results_and_compare_to_old_evaluate(old_test_loss, new_test_lo
     text = (f"Loss and accuracy comparison of model on audio_data vs unseen new audio from same dataset\n"
             f"Feature used: {feature_used}")
     plt.figtext(0.5, 0.01, text, wrap=True, horizontalalignment='center', fontsize=10)
-    plot_file_path = (f"plots\\new_tests_{model_type}_lr{LEARNING_RATE}_epochs{EPOCHS}_{feature_used}"
+    plot_file_path = (f"{PLOT_FOLDER}\\new_tests_{model_type}_lr{LEARNING_RATE}_epochs{EPOCHS}_{feature_used}"
                       f"{NUMBER_OF_MFCC if FEATURE_USED == 'mfcc' else NUMBER_OF_LFCC if FEATURE_USED == 'lfcc' else ''}.png"
                       f"_layers{NUMBER_OF_LAYERS}.png")
     plt.savefig(plot_file_path)
@@ -302,31 +369,31 @@ def plot_loss_and_accuracy(loss, acc):
 
     text = f"Loss and accuracy of model on unseen data"
     plt.figtext(0.5, 0.01, text, wrap=True, horizontalalignment='center', fontsize=10)
-    plot_file_path = (f"plots\\new_data_predictions_{MODEL_USED}_lr{LEARNING_RATE}_epochs{EPOCHS}_{FEATURE_USED}"
-                      f"{NUMBER_OF_MFCC if FEATURE_USED == 'mfcc' else ''}.png"
-                      f"_layers{NUMBER_OF_LAYERS}.png")
+    plot_file_path = (
+        f"{PLOT_FOLDER}\\new_data_predictions_{MODEL_USED}_lr{LEARNING_RATE}_epochs{EPOCHS}_{FEATURE_USED}"
+        f"{NUMBER_OF_MFCC if FEATURE_USED == 'mfcc' else ''}.png"
+        f"_layers{NUMBER_OF_LAYERS}.png")
     plt.savefig(plot_file_path)
     plt.show()
 
-# TODO : I modelli con 99 epoche sono quelli post modifica alle percentuali dei traintestsplit, prima erano 0.25, 0.2
+
 def main():
     test_loss = None
     test_acc = None
-    data_path = Path(JSON_PATH)
+    data_path = Path(TRAINING_JSON_PATH)
     if not data_path.exists():
-        all_data = prepare_dataset(DATASET_PATH, JSON_PATH)
+        prepare_dataset(with_data_augmentation=True)
 
     model_path = Path(MODEL_PATH)
     if not model_path.exists():
-        x, y = load_input_and_target_data(JSON_PATH, FEATURE_USED)
+        x_train, y_train = load_input_and_target_data(TRAINING_JSON_PATH)
+        x_val, y_val = load_input_and_target_data(VALIDATION_JSON_PATH)
+        x_test, y_test = load_input_and_target_data(TESTING_JSON_PATH)
 
-        x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.15, random_state=42)
-        x_val, x_test, y_val, y_test = train_test_split(x_train, y_train, test_size=0.2, random_state=42)
-        print(x_train.shape)
         # (num_segmenti_audio, 13 coefficienti, num canali(che è uno))
+        print(x_train.shape)
         input_shape = (x_train.shape[1], x_train.shape[2], 1)
 
-        # Refactor necessario, codice duplicato
         if MODEL_USED == 'resnet':
             res = resnet.ResNetModel(input_shape=input_shape, learning_rate=LEARNING_RATE)
             resnet_model = res.build_res_network()
@@ -346,7 +413,7 @@ def main():
             plot_history_and_save_plot_to_file(history)
 
     # un altro giro di evaluate su dati mai visti. Prelevati 300 di ognuno e etichettati per testare il modello
-    test_inputs, test_targets = pick_random_audio_from_test_folders_and_return_x_and_y_for_testing(FEATURE_USED)
+    test_inputs, test_targets = pick_audio_from_test_folders_and_return_x_and_y_for_testing(FEATURE_USED)
     model = tf.keras.models.load_model(MODEL_PATH)
     new_test_loss, new_test_acc = model.evaluate(test_inputs, test_targets)
     print("\nLoss su nuovi dati: {}, Accuracy su nuovi dati: {}".format(new_test_loss, new_test_acc))
