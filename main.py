@@ -1,18 +1,19 @@
 import json
 import os
 from pathlib import Path
-from torchaudio.transforms import LFCC
-from torch import Tensor, from_numpy
-import resnet
 
+import keras_tuner
 import librosa
-import audiomentations
 import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
-from sklearn.model_selection import train_test_split
-import keras_tuner
 from keras_tuner import HyperModel
+from torch import Tensor, from_numpy
+from torchaudio.transforms import LFCC
+
+import resnet
+from augment_dataset import augment_dataset
+from sort_new_test_dataset_audio import sort_data
 
 DEFAULT_SAMPLE_RATE = 22050
 
@@ -25,10 +26,10 @@ EPOCHS = 100
 BATCH_SIZE = 32
 DROPOUT_RATIO = 0.25
 FEATURE_USED = 'mfcc'
-MODEL_USED = 'cnn'
+MODEL_USED = 'resnet'
 NUMBER_OF_MFCC = 20
 NUMBER_OF_LFCC = 40
-NUMBER_OF_LAYERS = 4
+NUMBER_OF_LAYERS = 3
 
 TRAINING_DATA_PATH = "training"
 VALIDATION_DATA_PATH = "validation"
@@ -37,8 +38,8 @@ NEW_AUDIO_DATA = "new_test_audio_data"
 
 DATA_AUGMENTATION = True
 TRAINING_JSON_PATH = f"augmented_data_{FEATURE_USED}.json" if DATA_AUGMENTATION is True else f"data_{FEATURE_USED}.json"
-VALIDATION_JSON_PATH = f"val_data.json"
-TESTING_JSON_PATH = f"test_data.json"
+VALIDATION_JSON_PATH = f"val_data_{FEATURE_USED}.json"
+TESTING_JSON_PATH = f"test_data_{FEATURE_USED}.json"
 MODEL_PATH = (f"models_with_augmentation\\model_{MODEL_USED}_{FEATURE_USED}"
               f"{NUMBER_OF_MFCC if FEATURE_USED == 'mfcc' else NUMBER_OF_LFCC if FEATURE_USED == 'lfcc' else ''}"
               f"_layers{NUMBER_OF_LAYERS if MODEL_USED is not 'resnet' else ''}_lr{LEARNING_RATE}_epochs{EPOCHS}.keras")
@@ -106,11 +107,10 @@ class MyCnnHyperModel(HyperModel):
 
 
 # metodi che creano i json con i dati estratti. Solo il training set viene aumentato, per prevenire data leakage
-def extract_and_label(data_path, data_structure, is_training_data,
+def extract_and_label(data_path, json_path, data_structure, is_training_data,
                       number_of_lfcc=NUMBER_OF_LFCC, number_of_mfcc=NUMBER_OF_MFCC, hop_length=512, n_fft=2048):
     for root, dirs, files in os.walk(data_path):
         if root is not data_path:
-            augmented_audio = []
             label_name = root.split("\\")[-1]  # l'output è una lista ["training", "fake"] e poi ["training","real"]
             # avendo solo due categorie si poteva magari fare senza impostare questo ciclo, però manteniamo flessibiltà
             print(f"Processing {label_name} audio files")
@@ -118,16 +118,6 @@ def extract_and_label(data_path, data_structure, is_training_data,
             for file in files:
                 file_path = os.path.join(root, file)
                 audio_signal, sample_rate = librosa.load(file_path, sr=DEFAULT_SAMPLE_RATE)
-                if is_training_data and DATA_AUGMENTATION:
-                    gaussian_noise = np.random.normal(0, audio_signal.std(), audio_signal.size)
-                    noisy_audio = audio_signal + gaussian_noise
-                    augmented_audio.append(noisy_audio)
-                    pitch_shifted_audio = librosa.effects.pitch_shift(audio_signal, sr=sample_rate,
-                                                                      n_steps=4)  #4 semitoni in su
-                    augmented_audio.append(pitch_shifted_audio)
-                    band_pass_filter = audiomentations.BandPassFilter(p=1)
-                    filtered_audio = band_pass_filter(audio_signal, sample_rate=sample_rate)
-                    augmented_audio.append(filtered_audio)
 
                 label = LABEL_REAL if label_name == 'real' else LABEL_FAKE
 
@@ -136,22 +126,12 @@ def extract_and_label(data_path, data_structure, is_training_data,
                                                                      n_fft=n_fft, hop_length=hop_length)
                     data_structure["input_feature"].append(mel_spectrogram.T.tolist())
                     data_structure["labels"].append(label)
-                    for audio in augmented_audio:
-                        mspec = librosa.feature.melspectrogram(y=audio, sr=DEFAULT_SAMPLE_RATE,
-                                                               n_fft=n_fft, hop_length=hop_length)
-                        data_structure["input_feature"].append(mspec.T.tolist())
-                        data_structure["labels"].append(label)
 
                 elif FEATURE_USED == 'mfcc':
                     mfcc_list = librosa.feature.mfcc(y=audio_signal, n_mfcc=number_of_mfcc,
                                                      n_fft=n_fft, hop_length=hop_length)
                     data_structure["input_feature"].append(mfcc_list.T.tolist())
                     data_structure["labels"].append(label)
-                    for audio in augmented_audio:
-                        mfcc = librosa.feature.mfcc(y=audio, n_mfcc=number_of_mfcc,
-                                                    n_fft=n_fft, hop_length=hop_length)
-                        data_structure["input_feature"].append(mfcc.T.tolist())
-                        data_structure["labels"].append(label)
 
                 elif FEATURE_USED == 'lfcc':
                     lfcc_transform = LFCC(sample_rate=sample_rate, n_lfcc=number_of_lfcc,
@@ -161,14 +141,10 @@ def extract_and_label(data_path, data_structure, is_training_data,
                     lfccs = lfcc_transform(from_numpy(audio_signal))
                     data_structure['input_feature'].append(Tensor.tolist(lfccs))
                     data_structure["labels"].append(label)
-                    for audio in augmented_audio:
-                        lfcc = lfcc_transform(from_numpy(audio))
-                        data_structure['input_feature'].append(Tensor.tolist(lfcc))
-                        data_structure["labels"].append(label)
 
                 print(f"{file_path} is labeled {label_name}({label})")
 
-    return data_structure
+    save_json(json_path, data_structure)
 
 
 def save_json(json_path, data_structure):
@@ -178,8 +154,7 @@ def save_json(json_path, data_structure):
         print("data saved")
 
 
-def prepare_dataset(number_of_lfcc=NUMBER_OF_LFCC, number_of_mfcc=NUMBER_OF_MFCC, hop_length=512, n_fft=2048,
-                    with_data_augmentation=True):
+def prepare_dataset():
     training_data = {
         "mappings": [],
         "labels": [],
@@ -195,13 +170,9 @@ def prepare_dataset(number_of_lfcc=NUMBER_OF_LFCC, number_of_mfcc=NUMBER_OF_MFCC
         "labels": [],
         "input_feature": []
     }
-    training_data = extract_and_label(TRAINING_DATA_PATH, training_data, True)
-    validation_data = extract_and_label(VALIDATION_DATA_PATH, validation_data, False)
-    testing_data = extract_and_label(TESTING_DATA_PATH, testing_data, False)
-
-    save_json(TRAINING_DATA_PATH, training_data)
-    save_json(VALIDATION_DATA_PATH, validation_data)
-    save_json(TESTING_DATA_PATH, testing_data)
+    extract_and_label(TRAINING_DATA_PATH, TRAINING_JSON_PATH, training_data, True)
+    extract_and_label(VALIDATION_DATA_PATH, VALIDATION_JSON_PATH, validation_data, False)
+    extract_and_label(TESTING_DATA_PATH, TESTING_JSON_PATH, testing_data, False)
 
 
 def load_input_and_target_data(json_path):
@@ -310,9 +281,7 @@ def pick_audio_from_test_folders_and_return_x_and_y_for_testing(feature_used=FEA
 
 def cnn_pipeline_from_tuner_to_test(input_shape, X_train, X_test, y_train, y_test, X_val, y_val):
     my_hypermodel = MyCnnHyperModel(input_shape)
-    model_filepath = (f"models\\model_{MODEL_USED}_{FEATURE_USED}"
-                      f"{NUMBER_OF_MFCC if FEATURE_USED == 'mfcc' else NUMBER_OF_LFCC if FEATURE_USED == 'lfcc' else ''}"
-                      f"_layers{NUMBER_OF_LAYERS}_lr{LEARNING_RATE}_epochs{EPOCHS}.keras")
+    model_filepath = MODEL_PATH
     tuner = keras_tuner.RandomSearch(
         my_hypermodel,
         objective='val_loss',
@@ -378,11 +347,14 @@ def plot_loss_and_accuracy(loss, acc):
 
 
 def main():
+    # augment_dataset(TRAINING_DATA_PATH)
+    # sort_data()
+
     test_loss = None
     test_acc = None
     data_path = Path(TRAINING_JSON_PATH)
     if not data_path.exists():
-        prepare_dataset(with_data_augmentation=True)
+        prepare_dataset()
 
     model_path = Path(MODEL_PATH)
     if not model_path.exists():

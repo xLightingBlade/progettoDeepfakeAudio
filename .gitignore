@@ -4,6 +4,11 @@
 data_lfcc.json
 data_mel_spectrogram.json
 data_mfcc.json
+augmented_data_lfcc.json
+augmented_data_mfcc.json
+test_data.json
+val_data.json
 /untitled_project
 /testing
 /validation
+/augmented_audio_files
