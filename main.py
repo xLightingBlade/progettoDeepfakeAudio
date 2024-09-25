@@ -24,12 +24,12 @@ LOSS = "binary_crossentropy"
 LEARNING_RATE = 0.0001
 EPOCHS = 100
 BATCH_SIZE = 32
-DROPOUT_RATIO = 0.25
-FEATURE_USED = 'mfcc'
-MODEL_USED = 'resnet'
+DROPOUT_RATIO = 0.30
+FEATURE_USED = 'lfcc'
+MODEL_USED = 'cnn'
 NUMBER_OF_MFCC = 20
 NUMBER_OF_LFCC = 40
-NUMBER_OF_LAYERS = 3
+NUMBER_OF_LAYERS = 4
 
 TRAINING_DATA_PATH = "training"
 VALIDATION_DATA_PATH = "validation"
@@ -286,7 +286,7 @@ def cnn_pipeline_from_tuner_to_test(input_shape, X_train, X_test, y_train, y_tes
         my_hypermodel,
         objective='val_loss',
         max_trials=5)
-    stop_early = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=3)
+    stop_early = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=10)
     print("Beginning tuning process")
     tuner.search(X_train, y_train, epochs=EPOCHS, validation_data=(X_val, y_val), callbacks=[stop_early])
 
@@ -295,7 +295,7 @@ def cnn_pipeline_from_tuner_to_test(input_shape, X_train, X_test, y_train, y_tes
     hypermodel = tuner.hypermodel.build(hp)
     history = hypermodel.fit(X_train, y_train, epochs=EPOCHS,
                              validation_data=(X_val, y_val), batch_size=BATCH_SIZE,
-                             callbacks=[tf.keras.callbacks.EarlyStopping(patience=3),
+                             callbacks=[tf.keras.callbacks.EarlyStopping(patience=10),
                                         tf.keras.callbacks.ModelCheckpoint(
                                             filepath=model_filepath,
                                             monitor='val_loss', mode='min', save_best_only=True
@@ -349,6 +349,7 @@ def plot_loss_and_accuracy(loss, acc):
 def main():
     # augment_dataset(TRAINING_DATA_PATH)
     # sort_data()
+    # print(tf.config.list_physical_devices('GPU'))
 
     test_loss = None
     test_acc = None
@@ -371,7 +372,7 @@ def main():
             resnet_model = res.build_res_network()
             history = resnet_model.fit(x_train, y_train, epochs=EPOCHS,
                                        validation_data=(x_val, y_val), batch_size=BATCH_SIZE,
-                                       callbacks=[tf.keras.callbacks.EarlyStopping(patience=3),
+                                       callbacks=[tf.keras.callbacks.EarlyStopping(patience=10),
                                                   tf.keras.callbacks.ModelCheckpoint(
                                                       filepath=MODEL_PATH,
                                                       monitor='val_loss', mode='min', save_best_only=True
@@ -392,7 +393,6 @@ def main():
     plot_loss_and_accuracy(new_test_loss, new_test_acc)
     if test_loss is not None and test_acc is not None:
         plot_new_test_results_and_compare_to_old_evaluate(test_loss, new_test_loss, test_acc, new_test_acc)
-
 
 if __name__ == "__main__":
     main()
