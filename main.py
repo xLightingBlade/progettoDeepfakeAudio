@@ -12,7 +12,9 @@ from torch import Tensor, from_numpy
 from torchaudio.transforms import LFCC
 
 import resnet
+import cnn_hypermodel
 from augment_dataset import augment_dataset
+from rnn import build_rnn_model
 from sort_new_test_dataset_audio import sort_data
 
 DEFAULT_SAMPLE_RATE = 22050
@@ -25,11 +27,12 @@ LEARNING_RATE = 0.0001
 EPOCHS = 100
 BATCH_SIZE = 32
 DROPOUT_RATIO = 0.30
-FEATURE_USED = 'lfcc'
+FEATURE_USED = 'mfcc'
 MODEL_USED = 'cnn'
-NUMBER_OF_MFCC = 20
+NUMBER_OF_MFCC = 40
 NUMBER_OF_LFCC = 40
 NUMBER_OF_LAYERS = 4
+NUMBER_OF_SECONDS_PER_AUDIO = 5
 
 TRAINING_DATA_PATH = "training"
 VALIDATION_DATA_PATH = "validation"
@@ -37,73 +40,14 @@ TESTING_DATA_PATH = "testing"
 NEW_AUDIO_DATA = "new_test_audio_data"
 
 DATA_AUGMENTATION = True
-TRAINING_JSON_PATH = f"augmented_data_{FEATURE_USED}.json" if DATA_AUGMENTATION is True else f"data_{FEATURE_USED}.json"
-VALIDATION_JSON_PATH = f"val_data_{FEATURE_USED}.json"
-TESTING_JSON_PATH = f"test_data_{FEATURE_USED}.json"
-MODEL_PATH = (f"models_with_augmentation\\model_{MODEL_USED}_{FEATURE_USED}"
+TRAINING_JSON_PATH = f"norm_augmented_data_{FEATURE_USED}{NUMBER_OF_MFCC if FEATURE_USED == 'mfcc' else NUMBER_OF_LFCC if FEATURE_USED == 'lfcc' else ''}.json" if DATA_AUGMENTATION is True else f"data_{FEATURE_USED}.json"
+VALIDATION_JSON_PATH = f"norm_val_data_{FEATURE_USED}{NUMBER_OF_MFCC if FEATURE_USED == 'mfcc' else NUMBER_OF_LFCC if FEATURE_USED == 'lfcc' else ''}.json"
+TESTING_JSON_PATH = f"norm_test_data_{FEATURE_USED}{NUMBER_OF_MFCC if FEATURE_USED == 'mfcc' else NUMBER_OF_LFCC if FEATURE_USED == 'lfcc' else ''}.json"
+MODEL_PATH = (f"models_for_norm\\model_{MODEL_USED}_{FEATURE_USED}"
               f"{NUMBER_OF_MFCC if FEATURE_USED == 'mfcc' else NUMBER_OF_LFCC if FEATURE_USED == 'lfcc' else ''}"
               f"_layers{NUMBER_OF_LAYERS if MODEL_USED is not 'resnet' else ''}_lr{LEARNING_RATE}_epochs{EPOCHS}.keras")
 
-PLOT_FOLDER = "plots_with_augmentation"
-
-
-class MyCnnHyperModel(HyperModel):
-    def __init__(self, input_shape):
-        self.input_shape = input_shape
-
-    def build(self, hp):
-        model = tf.keras.models.Sequential()
-        model.add(tf.keras.Input(shape=self.input_shape))
-        # reg. l2 assieme al dropout: studi mostrano come porta maggior riduzione della loss
-        model.add(tf.keras.layers.Conv2D(filters=hp.Int('first_conv_filters', min_value=32, max_value=128, step=16),
-                                         kernel_size=hp.Choice('first_conv_kernel', values=[2, 5]), activation='relu',
-                                         padding='same',
-                                         kernel_regularizer=tf.keras.regularizers.l2(0.001)))
-        model.add(tf.keras.layers.BatchNormalization())
-        model.add(tf.keras.layers.MaxPooling2D((3, 3), strides=(2, 2), padding='same'))
-
-        if NUMBER_OF_LAYERS > 1:
-            model.add(tf.keras.layers.Conv2D(filters=hp.Int('second_conv_filters', min_value=16, max_value=64, step=16),
-                                             kernel_size=hp.Choice('second_conv_kernel', values=[2, 5]),
-                                             activation='relu',
-                                             padding='same',
-                                             kernel_regularizer=tf.keras.regularizers.l2(0.001)))
-            model.add(tf.keras.layers.BatchNormalization())
-            model.add(tf.keras.layers.MaxPooling2D((3, 3), strides=(2, 2), padding='same'))
-            if NUMBER_OF_LAYERS > 2:
-                model.add(
-                    tf.keras.layers.Conv2D(filters=hp.Int('third_conv_filters', min_value=16, max_value=64, step=16),
-                                           kernel_size=hp.Choice('third_conv_kernel', values=[2, 5]),
-                                           activation='relu',
-                                           padding='same',
-                                           kernel_regularizer=tf.keras.regularizers.l2(0.001)))
-                model.add(tf.keras.layers.BatchNormalization())
-                model.add(tf.keras.layers.MaxPooling2D((2, 2), strides=(2, 2), padding='same'))
-            if NUMBER_OF_LAYERS > 3:
-                model.add(
-                    tf.keras.layers.Conv2D(filters=hp.Int('fourth_conv_filters', min_value=16, max_value=64, step=16),
-                                           kernel_size=hp.Choice('fourth_conv_kernel', values=[2, 5]),
-                                           activation='relu',
-                                           padding='same',
-                                           kernel_regularizer=tf.keras.regularizers.l2(0.001)))
-                model.add(tf.keras.layers.BatchNormalization())
-                model.add(tf.keras.layers.MaxPooling2D((2, 2), strides=(2, 2), padding='same'))
-
-        model.add(tf.keras.layers.Flatten())
-        model.add(tf.keras.layers.Dense(units=hp.Int('dense_units', min_value=16, max_value=64, step=16),
-                                        activation='relu'))
-        if hp.Boolean("dropout"):
-            model.add(tf.keras.layers.Dropout(DROPOUT_RATIO))
-
-        # output layer, funzione di attivazione sigmoide per class. binaria, 1 neurone per input feature, quindi uno
-        model.add(tf.keras.layers.Dense(units=1, activation='sigmoid'))
-
-        model.compile(optimizer=tf.optimizers.Adam(learning_rate=LEARNING_RATE),
-                      loss=LOSS,
-                      metrics=["accuracy"])
-        model.summary()
-
-        return model
+PLOT_FOLDER = "plots_for_norm"
 
 
 # metodi che creano i json con i dati estratti. Solo il training set viene aumentato, per prevenire data leakage
@@ -120,6 +64,11 @@ def extract_and_label(data_path, json_path, data_structure, is_training_data,
                 audio_signal, sample_rate = librosa.load(file_path, sr=DEFAULT_SAMPLE_RATE)
 
                 label = LABEL_REAL if label_name == 'real' else LABEL_FAKE
+                if len(audio_signal) >= DEFAULT_SAMPLE_RATE * NUMBER_OF_SECONDS_PER_AUDIO:
+                    audio_signal = audio_signal[:DEFAULT_SAMPLE_RATE * NUMBER_OF_SECONDS_PER_AUDIO]
+                else:
+                    audio_signal = librosa.util.fix_length(audio_signal,
+                                                           size=DEFAULT_SAMPLE_RATE * NUMBER_OF_SECONDS_PER_AUDIO)
 
                 if FEATURE_USED == 'mel_spectrogram':
                     mel_spectrogram = librosa.feature.melspectrogram(y=audio_signal, sr=DEFAULT_SAMPLE_RATE,
@@ -224,10 +173,11 @@ def pick_audio_from_test_folders_and_return_x_and_y_for_testing(feature_used=FEA
     print("Picking new fake files")
     for file in fake_files:
         audio, sr = librosa.load(f"{NEW_AUDIO_DATA}\\fake\\{file}", sr=DEFAULT_SAMPLE_RATE)
-        if len(audio) >= DEFAULT_SAMPLE_RATE * 2:
-            audio = audio[:DEFAULT_SAMPLE_RATE * 2]
+        if len(audio) >= DEFAULT_SAMPLE_RATE * NUMBER_OF_SECONDS_PER_AUDIO:
+            audio = audio[:DEFAULT_SAMPLE_RATE * NUMBER_OF_SECONDS_PER_AUDIO]
         else:
-            audio = librosa.util.fix_length(audio, size=DEFAULT_SAMPLE_RATE * 2)
+            audio = librosa.util.fix_length(audio, size=DEFAULT_SAMPLE_RATE * NUMBER_OF_SECONDS_PER_AUDIO)
+
         if feature_used == 'mfcc':
             mfccs = librosa.feature.mfcc(y=audio, n_mfcc=NUMBER_OF_MFCC, n_fft=2048, hop_length=512)
             test_data["feature_used"].append(mfccs.T.tolist())
@@ -249,10 +199,10 @@ def pick_audio_from_test_folders_and_return_x_and_y_for_testing(feature_used=FEA
     print("Picking new real files")
     for file in real_files:
         audio, sr = librosa.load(f"{NEW_AUDIO_DATA}\\real\\{file}", sr=DEFAULT_SAMPLE_RATE)
-        if len(audio) >= DEFAULT_SAMPLE_RATE * 2:
-            audio = audio[:DEFAULT_SAMPLE_RATE * 2]  # dovrebbe restituire 2 secondi di audio.
+        if len(audio) >= DEFAULT_SAMPLE_RATE * NUMBER_OF_SECONDS_PER_AUDIO:
+            audio = audio[:DEFAULT_SAMPLE_RATE * NUMBER_OF_SECONDS_PER_AUDIO]  # dovrebbe restituire 5 secondi di audio.
         else:
-            audio = librosa.util.fix_length(audio, size=DEFAULT_SAMPLE_RATE * 2)
+            audio = librosa.util.fix_length(audio, size=DEFAULT_SAMPLE_RATE * NUMBER_OF_SECONDS_PER_AUDIO)
         if feature_used == 'mfcc':
             mfccs = librosa.feature.mfcc(y=audio, n_mfcc=NUMBER_OF_MFCC, n_fft=2048, hop_length=512)
             test_data["feature_used"].append(mfccs.T.tolist())
@@ -280,7 +230,7 @@ def pick_audio_from_test_folders_and_return_x_and_y_for_testing(feature_used=FEA
 
 
 def cnn_pipeline_from_tuner_to_test(input_shape, X_train, X_test, y_train, y_test, X_val, y_val):
-    my_hypermodel = MyCnnHyperModel(input_shape)
+    my_hypermodel = cnn_hypermodel.MyCnnHyperModel(input_shape, NUMBER_OF_LAYERS, DROPOUT_RATIO, LEARNING_RATE)
     model_filepath = MODEL_PATH
     tuner = keras_tuner.RandomSearch(
         my_hypermodel,
@@ -365,8 +315,12 @@ def main():
 
         # (num_segmenti_audio, 13 coefficienti, num canali(che è uno))
         print(x_train.shape)
-        input_shape = (x_train.shape[1], x_train.shape[2], 1)
+        if 'lstm' in MODEL_USED:
+            input_shape = (x_train.shape[1], x_train.shape[2])
+        else:
+            input_shape = (x_train.shape[1], x_train.shape[2], 1)
 
+        # codice duplicato
         if MODEL_USED == 'resnet':
             res = resnet.ResNetModel(input_shape=input_shape, learning_rate=LEARNING_RATE)
             resnet_model = res.build_res_network()
@@ -378,6 +332,17 @@ def main():
                                                       monitor='val_loss', mode='min', save_best_only=True
                                                   )])
             test_loss, test_acc = resnet_model.evaluate(x_test, y_test)
+            plot_history_and_save_plot_to_file(history)
+        elif 'lstm' in MODEL_USED:
+            lstm_model = build_rnn_model(MODEL_USED, input_shape, LEARNING_RATE)
+            history = lstm_model.fit(x_train, y_train, epochs=EPOCHS,
+                                     validation_data=(x_val, y_val), batch_size=BATCH_SIZE,
+                                     callbacks=[tf.keras.callbacks.EarlyStopping(patience=10),
+                                                tf.keras.callbacks.ModelCheckpoint(
+                                                    filepath=MODEL_PATH,
+                                                    monitor='val_loss', mode='min', save_best_only=True
+                                                )])
+            test_loss, test_acc = lstm_model.evaluate(x_test, y_test)
             plot_history_and_save_plot_to_file(history)
         else:
             history, test_loss, test_acc, model_filepath = cnn_pipeline_from_tuner_to_test(input_shape, x_train, x_test,
@@ -393,6 +358,7 @@ def main():
     plot_loss_and_accuracy(new_test_loss, new_test_acc)
     if test_loss is not None and test_acc is not None:
         plot_new_test_results_and_compare_to_old_evaluate(test_loss, new_test_loss, test_acc, new_test_acc)
+
 
 if __name__ == "__main__":
     main()

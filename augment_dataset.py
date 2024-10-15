@@ -27,4 +27,4 @@ def augment_dataset(data_path):
                                                 f"{original_file_name}.wav")
 
                 sf.write(noisy_audio_filepath, noisy_audio, DEFAULT_SAMPLE_RATE)
-                sf.write(pitch_shifted_audio_filepath, pitch_shifted_audio, DEFAULT_SAMPLE_RATE)
+                # sf.write(pitch_shifted_audio_filepath, pitch_shifted_audio, DEFAULT_SAMPLE_RATE)
