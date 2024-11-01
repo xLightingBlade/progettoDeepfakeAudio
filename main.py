@@ -1,21 +1,21 @@
 import json
 import os
+import sys
 from pathlib import Path
 
-import keras_tuner
+
 import librosa
 import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
-from keras_tuner import HyperModel
 from torch import Tensor, from_numpy
 from torchaudio.transforms import LFCC
+import keras_tuner
 
-import resnet
 import cnn_hypermodel
-from augment_dataset import augment_dataset
+import resnet
+import spectrogram_pipeline
 from rnn import build_rnn_model
-from sort_new_test_dataset_audio import sort_data
 
 DEFAULT_SAMPLE_RATE = 22050
 
@@ -29,7 +29,7 @@ BATCH_SIZE = 32
 DROPOUT_RATIO = 0.30
 FEATURE_USED = 'mfcc'
 MODEL_USED = 'cnn'
-NUMBER_OF_MFCC = 40
+NUMBER_OF_MFCC = 20
 NUMBER_OF_LFCC = 40
 NUMBER_OF_LAYERS = 4
 NUMBER_OF_SECONDS_PER_AUDIO = 5
@@ -46,6 +46,7 @@ TESTING_JSON_PATH = f"norm_test_data_{FEATURE_USED}{NUMBER_OF_MFCC if FEATURE_US
 MODEL_PATH = (f"models_for_norm\\model_{MODEL_USED}_{FEATURE_USED}"
               f"{NUMBER_OF_MFCC if FEATURE_USED == 'mfcc' else NUMBER_OF_LFCC if FEATURE_USED == 'lfcc' else ''}"
               f"_layers{NUMBER_OF_LAYERS if MODEL_USED is not 'resnet' else ''}_lr{LEARNING_RATE}_epochs{EPOCHS}.keras")
+
 
 PLOT_FOLDER = "plots_for_norm"
 
@@ -66,17 +67,14 @@ def extract_and_label(data_path, json_path, data_structure, is_training_data,
                 label = LABEL_REAL if label_name == 'real' else LABEL_FAKE
                 if len(audio_signal) >= DEFAULT_SAMPLE_RATE * NUMBER_OF_SECONDS_PER_AUDIO:
                     audio_signal = audio_signal[:DEFAULT_SAMPLE_RATE * NUMBER_OF_SECONDS_PER_AUDIO]
+                elif len(audio_signal) < DEFAULT_SAMPLE_RATE:
+                    print(f"{file_path} is too small (less 1 sec)")
+                    continue
                 else:
                     audio_signal = librosa.util.fix_length(audio_signal,
                                                            size=DEFAULT_SAMPLE_RATE * NUMBER_OF_SECONDS_PER_AUDIO)
 
-                if FEATURE_USED == 'mel_spectrogram':
-                    mel_spectrogram = librosa.feature.melspectrogram(y=audio_signal, sr=DEFAULT_SAMPLE_RATE,
-                                                                     n_fft=n_fft, hop_length=hop_length)
-                    data_structure["input_feature"].append(mel_spectrogram.T.tolist())
-                    data_structure["labels"].append(label)
-
-                elif FEATURE_USED == 'mfcc':
+                if FEATURE_USED == 'mfcc':
                     mfcc_list = librosa.feature.mfcc(y=audio_signal, n_mfcc=number_of_mfcc,
                                                      n_fft=n_fft, hop_length=hop_length)
                     data_structure["input_feature"].append(mfcc_list.T.tolist())
@@ -135,7 +133,8 @@ def load_input_and_target_data(json_path):
     return x, y
 
 
-def plot_history_and_save_plot_to_file(history, model_type=MODEL_USED, feature_used=FEATURE_USED):
+def plot_history_and_save_plot_to_file(history, model_type=MODEL_USED, feature_used=FEATURE_USED, plot_path=None,
+                                       learning_rate=LEARNING_RATE, epochs=EPOCHS,):
     fig, axs = plt.subplots(1, 2)
 
     # create accuracy subplot
@@ -153,10 +152,11 @@ def plot_history_and_save_plot_to_file(history, model_type=MODEL_USED, feature_u
     axs[1].legend(loc="upper right")
     axs[1].set_title("Loss evaluation")
 
-    text = f"Learning rate of {LEARNING_RATE}, trained for {EPOCHS} epochs.\nFeature used: {feature_used}"
+    text = f"Learning rate of {learning_rate}, trained for {epochs} epochs.\nFeature used: {feature_used}"
     plt.figtext(0.5, 0.01, text, wrap=True, horizontalalignment='center', fontsize=12)
-    plot_file_path = (f"{PLOT_FOLDER}\\{model_type}_lr{LEARNING_RATE}_epochs{EPOCHS}_{feature_used}"
-                      f"{NUMBER_OF_MFCC if FEATURE_USED == 'mfcc' else NUMBER_OF_LFCC if FEATURE_USED == 'lfcc' else ''}.png"
+
+    plot_file_path = plot_path if plot_path is not None else (f"{PLOT_FOLDER}\\{model_type}_lr{learning_rate}_epochs{epochs}_{feature_used}"
+                      f"{NUMBER_OF_MFCC if FEATURE_USED == 'mfcc' else NUMBER_OF_LFCC if FEATURE_USED == 'lfcc' else ''}"
                       f"_layers{NUMBER_OF_LAYERS if FEATURE_USED != 'resnet' else ''}.png")
     plt.savefig(plot_file_path)
     plt.show()
@@ -175,16 +175,15 @@ def pick_audio_from_test_folders_and_return_x_and_y_for_testing(feature_used=FEA
         audio, sr = librosa.load(f"{NEW_AUDIO_DATA}\\fake\\{file}", sr=DEFAULT_SAMPLE_RATE)
         if len(audio) >= DEFAULT_SAMPLE_RATE * NUMBER_OF_SECONDS_PER_AUDIO:
             audio = audio[:DEFAULT_SAMPLE_RATE * NUMBER_OF_SECONDS_PER_AUDIO]
+        elif len(audio) < DEFAULT_SAMPLE_RATE:
+            print("file too small")
+            continue
         else:
             audio = librosa.util.fix_length(audio, size=DEFAULT_SAMPLE_RATE * NUMBER_OF_SECONDS_PER_AUDIO)
 
         if feature_used == 'mfcc':
             mfccs = librosa.feature.mfcc(y=audio, n_mfcc=NUMBER_OF_MFCC, n_fft=2048, hop_length=512)
             test_data["feature_used"].append(mfccs.T.tolist())
-
-        elif feature_used == 'mel_spectrogram':
-            mel_spectrograms = librosa.feature.melspectrogram(y=audio, n_fft=2048, hop_length=512)
-            test_data["feature_used"].append(mel_spectrograms.T.tolist())
 
         elif feature_used == 'lfcc':
             lfcc_transform = LFCC(sample_rate=sr, n_lfcc=NUMBER_OF_LFCC,
@@ -201,15 +200,15 @@ def pick_audio_from_test_folders_and_return_x_and_y_for_testing(feature_used=FEA
         audio, sr = librosa.load(f"{NEW_AUDIO_DATA}\\real\\{file}", sr=DEFAULT_SAMPLE_RATE)
         if len(audio) >= DEFAULT_SAMPLE_RATE * NUMBER_OF_SECONDS_PER_AUDIO:
             audio = audio[:DEFAULT_SAMPLE_RATE * NUMBER_OF_SECONDS_PER_AUDIO]  # dovrebbe restituire 5 secondi di audio.
+
+        elif len(audio) < DEFAULT_SAMPLE_RATE:
+            print("file too small")
+            continue
         else:
             audio = librosa.util.fix_length(audio, size=DEFAULT_SAMPLE_RATE * NUMBER_OF_SECONDS_PER_AUDIO)
         if feature_used == 'mfcc':
             mfccs = librosa.feature.mfcc(y=audio, n_mfcc=NUMBER_OF_MFCC, n_fft=2048, hop_length=512)
             test_data["feature_used"].append(mfccs.T.tolist())
-
-        elif feature_used == 'mel_spectrogram':
-            mel_spectrograms = librosa.feature.melspectrogram(y=audio, n_fft=2048, hop_length=512)
-            test_data["feature_used"].append(mel_spectrograms.T.tolist())
 
         elif feature_used == 'lfcc':
             lfcc_transform = LFCC(sample_rate=sr, n_lfcc=NUMBER_OF_LFCC,
@@ -235,6 +234,7 @@ def cnn_pipeline_from_tuner_to_test(input_shape, X_train, X_test, y_train, y_tes
     tuner = keras_tuner.RandomSearch(
         my_hypermodel,
         objective='val_loss',
+        overwrite=True,
         max_trials=5)
     stop_early = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=10)
     print("Beginning tuning process")
@@ -251,8 +251,11 @@ def cnn_pipeline_from_tuner_to_test(input_shape, X_train, X_test, y_train, y_tes
                                             monitor='val_loss', mode='min', save_best_only=True
                                         )])
 
-    test_loss, test_acc = hypermodel.evaluate(X_test, y_test)
-    print("\nTest loss: {}, test accuracy: {}".format(test_loss, test_acc))
+    test_loss, test_acc, test_precision, test_recall = hypermodel.evaluate(X_test, y_test)
+    f1_score = 2 * (test_precision * test_recall) / (test_precision + test_recall)
+    print("\nTest loss: {}, test accuracy: {}, test precision: {}, test recall: {}".
+          format(test_loss, test_acc, test_precision, test_recall))
+    print("F1 score: {}".format(f1_score))
     return history, test_loss, test_acc, model_filepath
 
 
@@ -297,9 +300,9 @@ def plot_loss_and_accuracy(loss, acc):
 
 
 def main():
-    # augment_dataset(TRAINING_DATA_PATH)
-    # sort_data()
-    # print(tf.config.list_physical_devices('GPU'))
+    if FEATURE_USED == 'spectrogram':
+        spectrogram_pipeline.main()
+        sys.exit()
 
     test_loss = None
     test_acc = None
@@ -353,7 +356,8 @@ def main():
     # un altro giro di evaluate su dati mai visti. Prelevati 300 di ognuno e etichettati per testare il modello
     test_inputs, test_targets = pick_audio_from_test_folders_and_return_x_and_y_for_testing(FEATURE_USED)
     model = tf.keras.models.load_model(MODEL_PATH)
-    new_test_loss, new_test_acc = model.evaluate(test_inputs, test_targets)
+    model.summary()
+    new_test_loss, new_test_acc, new_ = model.evaluate(test_inputs, test_targets)
     print("\nLoss su nuovi dati: {}, Accuracy su nuovi dati: {}".format(new_test_loss, new_test_acc))
     plot_loss_and_accuracy(new_test_loss, new_test_acc)
     if test_loss is not None and test_acc is not None:

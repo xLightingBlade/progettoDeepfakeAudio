@@ -12,7 +12,7 @@ class MyCnnHyperModel(HyperModel):
         model = tf.keras.models.Sequential()
         model.add(tf.keras.Input(shape=self.input_shape))
         # reg. l2 assieme al dropout: studi mostrano come porta maggior riduzione della loss
-        model.add(tf.keras.layers.Conv2D(filters=hp.Int('first_conv_filters', min_value=32, max_value=128, step=16),
+        model.add(tf.keras.layers.Conv2D(filters=hp.Int('first_conv_filters', min_value=16, max_value=64, step=16),
                                          kernel_size=hp.Choice('first_conv_kernel', values=[2, 5]), activation='relu',
                                          padding='same',
                                          kernel_regularizer=tf.keras.regularizers.l2(0.001)))
@@ -47,17 +47,21 @@ class MyCnnHyperModel(HyperModel):
                 model.add(tf.keras.layers.MaxPooling2D((2, 2), strides=(2, 2), padding='same'))
 
         model.add(tf.keras.layers.Flatten())
-        model.add(tf.keras.layers.Dense(units=hp.Int('dense_units', min_value=16, max_value=64, step=16),
-                                        activation='relu'))
-        if hp.Boolean("dropout"):
-            model.add(tf.keras.layers.Dropout(self.dropout_rate))
+        model.add(tf.keras.layers.Dense(units=64,
+                                        activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.001)))
+        model.add(tf.keras.layers.Dropout(0.1))
+        model.add(tf.keras.layers.Flatten())
+        model.add(tf.keras.layers.Dense(32, kernel_regularizer=tf.keras.regularizers.l2(0.001)))
 
-        # output layer, funzione di attivazione sigmoide per class. binaria, 1 neurone per input feature, quindi uno
+        model.add(tf.keras.layers.Dropout(self.dropout_rate))
+
+        # output layer, funzione di attivazione sigmoide per class. binaria, 1 neurone per cardinalità output,
+        # quindi uno
         model.add(tf.keras.layers.Dense(units=1, activation='sigmoid'))
 
         model.compile(optimizer=tf.optimizers.Adam(learning_rate=self.learning_rate),
                       loss="binary_crossentropy",
-                      metrics=["accuracy"])
+                      metrics=['accuracy', tf.keras.metrics.Precision(), tf.keras.metrics.Recall()])
         model.summary()
 
         return model

@@ -1,5 +1,5 @@
 from tensorflow import keras
-
+from keras import metrics
 
 # Altro modo di creare modelli con keras, questa è la Functional API
 # Reference per l'architettura ResNet : https://arxiv.org/pdf/1603.05027v2 figura 4e (full pre-activation)
@@ -44,6 +44,6 @@ class ResNetModel:
         # Compiling the model
         model.compile(loss='binary_crossentropy',
                       optimizer=keras.optimizers.SGD(learning_rate=self.learning_rate),
-                      metrics=['accuracy'])
+                      metrics=['accuracy', metrics.Precision(), metrics.Recall(), metrics.F1Score()])
         model.summary()
         return model

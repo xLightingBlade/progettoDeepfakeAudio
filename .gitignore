@@ -9,11 +9,11 @@ test_data_mel_spectrogram.json
 val_data_lfcc.json
 val_data_mfcc.json
 val_data_mel_spectrogram.json
-norm_augmented_data_lfcc.json
+norm_augmented_data_lfcc40.json
 norm_augmented_data_mfcc40.json
-norm_test_data_lfcc.json
+norm_test_data_lfcc40.json
 norm_test_data_mfcc40.json
-norm_val_data_lfcc.json
+norm_val_data_lfcc40.json
 norm_val_data_mfcc40.json
 /untitled_project
 /training
