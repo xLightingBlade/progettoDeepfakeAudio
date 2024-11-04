@@ -5,6 +5,7 @@ import get_spectrogram_datasets
 import matplotlib.pyplot as plt
 import tensorflow as tf
 from pathlib import Path
+import visualkeras
 
 import resnet
 
@@ -89,6 +90,7 @@ def main():
             f1_score = 2 * (test_precision * test_recall) / (test_precision + test_recall)
         print("\nLoss dati test: {}, Accuracy dati test: {}, Precision: {}, Recall: {}"
               .format(test_loss, test_acc, test_precision, test_recall))
+        print("F1 Score: {}".format(f1_score))
         plot_history_and_save_plot_to_file(history, learning_rate=LEARNING_RATE, epochs=EPOCHS)
     else:
         print("Loading saved model")
@@ -99,6 +101,7 @@ def main():
                       optimizer=tf.keras.optimizers.SGD(learning_rate=LEARNING_RATE),
                       metrics=['accuracy', tf.keras.metrics.Precision(),
                                tf.keras.metrics.Recall()])
+        #visualkeras.layered_view(model, to_file='architectures/cnnmodel.png', legend=True).show()
         test_loss, test_acc, test_precision, test_recall = model.evaluate(testing_dataset)
         f1_score = 2 * (test_precision * test_recall) / (test_precision + test_recall)
         print(f"TEST LOSS: {test_loss}, TEST ACC: {test_acc}, TEST PRECISION: {test_precision}, TEST RECALL: {test_recall}")

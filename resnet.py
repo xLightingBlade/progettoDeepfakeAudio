@@ -1,5 +1,6 @@
-from tensorflow import keras
 from keras import metrics
+from tensorflow import keras
+
 
 # Altro modo di creare modelli con keras, questa è la Functional API
 # Reference per l'architettura ResNet : https://arxiv.org/pdf/1603.05027v2 figura 4e (full pre-activation)
