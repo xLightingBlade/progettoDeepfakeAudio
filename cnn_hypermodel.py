@@ -16,6 +16,7 @@ class MyCnnHyperModel(HyperModel):
                                          kernel_size=hp.Choice('first_conv_kernel', values=[2, 5]), activation='relu',
                                          padding='same',
                                          kernel_regularizer=tf.keras.regularizers.l2(0.001)))
+        model.add(tf.keras.layers.Dropout(0.1))
         model.add(tf.keras.layers.BatchNormalization())
         model.add(tf.keras.layers.MaxPooling2D((3, 3), strides=(2, 2), padding='same'))
 
@@ -25,6 +26,7 @@ class MyCnnHyperModel(HyperModel):
                                              activation='relu',
                                              padding='same',
                                              kernel_regularizer=tf.keras.regularizers.l2(0.001)))
+            model.add(tf.keras.layers.Dropout(0.1))
             model.add(tf.keras.layers.BatchNormalization())
             model.add(tf.keras.layers.MaxPooling2D((3, 3), strides=(2, 2), padding='same'))
             if self.number_of_layers > 2:
@@ -34,6 +36,7 @@ class MyCnnHyperModel(HyperModel):
                                            activation='relu',
                                            padding='same',
                                            kernel_regularizer=tf.keras.regularizers.l2(0.001)))
+                model.add(tf.keras.layers.Dropout(0.1))
                 model.add(tf.keras.layers.BatchNormalization())
                 model.add(tf.keras.layers.MaxPooling2D((2, 2), strides=(2, 2), padding='same'))
             if self.number_of_layers > 3:
@@ -43,13 +46,14 @@ class MyCnnHyperModel(HyperModel):
                                            activation='relu',
                                            padding='same',
                                            kernel_regularizer=tf.keras.regularizers.l2(0.001)))
+                model.add(tf.keras.layers.Dropout(0.1))
                 model.add(tf.keras.layers.BatchNormalization())
                 model.add(tf.keras.layers.MaxPooling2D((2, 2), strides=(2, 2), padding='same'))
 
         model.add(tf.keras.layers.Flatten())
         model.add(tf.keras.layers.Dense(units=64,
                                         activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.001)))
-        model.add(tf.keras.layers.Dropout(0.1))
+        model.add(tf.keras.layers.Dropout(0.3))
         model.add(tf.keras.layers.Flatten())
         model.add(tf.keras.layers.Dense(32, kernel_regularizer=tf.keras.regularizers.l2(0.001)))
 

@@ -8,6 +8,7 @@ import librosa
 import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
+import visualkeras
 from torch import Tensor, from_numpy
 from torchaudio.transforms import LFCC
 import keras_tuner
@@ -31,7 +32,7 @@ FEATURE_USED = 'mfcc'
 MODEL_USED = 'cnn'
 NUMBER_OF_MFCC = 20
 NUMBER_OF_LFCC = 40
-NUMBER_OF_LAYERS = 4
+NUMBER_OF_LAYERS = 3
 NUMBER_OF_SECONDS_PER_AUDIO = 5
 
 TRAINING_DATA_PATH = "training"
@@ -40,7 +41,7 @@ TESTING_DATA_PATH = "testing"
 NEW_AUDIO_DATA = "new_test_audio_data"
 
 DATA_AUGMENTATION = True
-TRAINING_JSON_PATH = f"norm_augmented_data_{FEATURE_USED}{NUMBER_OF_MFCC if FEATURE_USED == 'mfcc' else NUMBER_OF_LFCC if FEATURE_USED == 'lfcc' else ''}.json" if DATA_AUGMENTATION is True else f"data_{FEATURE_USED}.json"
+TRAINING_JSON_PATH = f"norm_training_data_{FEATURE_USED}{NUMBER_OF_MFCC if FEATURE_USED == 'mfcc' else NUMBER_OF_LFCC if FEATURE_USED == 'lfcc' else ''}.json" if DATA_AUGMENTATION is True else f"norm_train_data_{FEATURE_USED}{NUMBER_OF_MFCC}.json"
 VALIDATION_JSON_PATH = f"norm_val_data_{FEATURE_USED}{NUMBER_OF_MFCC if FEATURE_USED == 'mfcc' else NUMBER_OF_LFCC if FEATURE_USED == 'lfcc' else ''}.json"
 TESTING_JSON_PATH = f"norm_test_data_{FEATURE_USED}{NUMBER_OF_MFCC if FEATURE_USED == 'mfcc' else NUMBER_OF_LFCC if FEATURE_USED == 'lfcc' else ''}.json"
 MODEL_PATH = (f"models_for_norm\\model_{MODEL_USED}_{FEATURE_USED}"
@@ -300,9 +301,16 @@ def plot_loss_and_accuracy(loss, acc):
 
 
 def main():
+    """
+    model = tf.keras.models.load_model(MODEL_PATH)
+    visualkeras.layered_view(model, to_file='architectures/cnnmodel.png', legend=True).show()
+    sys.exit()
+    """
+    """
     if FEATURE_USED == 'spectrogram':
         spectrogram_pipeline.main()
         sys.exit()
+    """
 
     test_loss = None
     test_acc = None
@@ -354,6 +362,7 @@ def main():
             plot_history_and_save_plot_to_file(history)
 
     # un altro giro di evaluate su dati mai visti. Prelevati 300 di ognuno e etichettati per testare il modello
+    """
     test_inputs, test_targets = pick_audio_from_test_folders_and_return_x_and_y_for_testing(FEATURE_USED)
     model = tf.keras.models.load_model(MODEL_PATH)
     model.summary()
@@ -362,7 +371,7 @@ def main():
     plot_loss_and_accuracy(new_test_loss, new_test_acc)
     if test_loss is not None and test_acc is not None:
         plot_new_test_results_and_compare_to_old_evaluate(test_loss, new_test_loss, test_acc, new_test_acc)
-
+    """
 
 if __name__ == "__main__":
     main()

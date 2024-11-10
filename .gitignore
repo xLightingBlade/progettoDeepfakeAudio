@@ -15,6 +15,9 @@ norm_test_data_lfcc40.json
 norm_test_data_mfcc40.json
 norm_val_data_lfcc40.json
 norm_val_data_mfcc40.json
+norm_val_data_mfcc20.json
+norm_training_data_mfcc20.json
+norm_test_data_mfcc20.json
 /untitled_project
 /training
 /testing

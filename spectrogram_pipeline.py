@@ -11,8 +11,8 @@ import resnet
 
 LEARNING_RATE = 0.0001
 EPOCHS = 200
-LAYERS = 3
-MODEL_USED = 'resnet'
+LAYERS = 4
+MODEL_USED = 'cnn'
 MODEL_PATH = (f"models_for_norm\\model_{MODEL_USED}_{LAYERS if MODEL_USED =='cnn' else ''}_spectrogram_tf_data_api_lr0"
               f".0001_epochs200.keras")
 PLOT_PATH = f"plots_for_norm\\{MODEL_USED}_lr0.0001__epochs200_spectrogram.png"
@@ -97,10 +97,6 @@ def main():
         testing_dataset = get_spectrogram_datasets.get_dataset("testing", 35)
         testing_dataset = testing_dataset.cache().prefetch(tf.data.AUTOTUNE)
         model = tf.keras.models.load_model(MODEL_PATH)
-        model.compile(loss='binary_crossentropy',
-                      optimizer=tf.keras.optimizers.SGD(learning_rate=LEARNING_RATE),
-                      metrics=['accuracy', tf.keras.metrics.Precision(),
-                               tf.keras.metrics.Recall()])
         #visualkeras.layered_view(model, to_file='architectures/cnnmodel.png', legend=True).show()
         test_loss, test_acc, test_precision, test_recall = model.evaluate(testing_dataset)
         f1_score = 2 * (test_precision * test_recall) / (test_precision + test_recall)

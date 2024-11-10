@@ -44,7 +44,7 @@ class ResNetModel:
 
         # Compiling the model
         model.compile(loss='binary_crossentropy',
-                      optimizer=keras.optimizers.SGD(learning_rate=self.learning_rate),
-                      metrics=['accuracy', metrics.Precision(), metrics.Recall(), metrics.F1Score()])
+                      optimizer=keras.optimizers.Adam(learning_rate=self.learning_rate),
+                      metrics=['accuracy', metrics.Precision(), metrics.Recall()])
         model.summary()
         return model
