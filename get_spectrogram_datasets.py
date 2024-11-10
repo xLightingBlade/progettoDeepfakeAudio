@@ -84,12 +84,12 @@ def main():
             c = i % cols
             ax = axes[r][c]
             plot_spectrogram(example_spectrograms[i].numpy(), ax)
-            ax.set_title(example_spect_labels[i].numpy())
-
+            ax.set_title("fake" if example_spect_labels[i].numpy() == 0 else "real")
+    plt.savefig("example_spectrogram.png")
     plt.show()
     """
     return training_dataset, testing_dataset, validation_dataset
-    
+
 
 if __name__ == '__main__':
     main()

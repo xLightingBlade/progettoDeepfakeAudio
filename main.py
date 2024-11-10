@@ -38,7 +38,6 @@ NUMBER_OF_SECONDS_PER_AUDIO = 5
 TRAINING_DATA_PATH = "training"
 VALIDATION_DATA_PATH = "validation"
 TESTING_DATA_PATH = "testing"
-NEW_AUDIO_DATA = "new_test_audio_data"
 
 DATA_AUGMENTATION = True
 TRAINING_JSON_PATH = f"norm_training_data_{FEATURE_USED}{NUMBER_OF_MFCC if FEATURE_USED == 'mfcc' else NUMBER_OF_LFCC if FEATURE_USED == 'lfcc' else ''}.json" if DATA_AUGMENTATION is True else f"norm_train_data_{FEATURE_USED}{NUMBER_OF_MFCC}.json"
@@ -163,6 +162,7 @@ def plot_history_and_save_plot_to_file(history, model_type=MODEL_USED, feature_u
     plt.show()
 
 
+"""
 def pick_audio_from_test_folders_and_return_x_and_y_for_testing(feature_used=FEATURE_USED):
     test_data = {
         "label": [],
@@ -227,7 +227,7 @@ def pick_audio_from_test_folders_and_return_x_and_y_for_testing(feature_used=FEA
     print(f"{test_targets} ; {test_targets.shape}")
     print("New test data created")
     return test_inputs, test_targets
-
+"""
 
 def cnn_pipeline_from_tuner_to_test(input_shape, X_train, X_test, y_train, y_test, X_val, y_val):
     my_hypermodel = cnn_hypermodel.MyCnnHyperModel(input_shape, NUMBER_OF_LAYERS, DROPOUT_RATIO, LEARNING_RATE)
@@ -360,18 +360,6 @@ def main():
                                                                                            y_train, y_test, x_val,
                                                                                            y_val)
             plot_history_and_save_plot_to_file(history)
-
-    # un altro giro di evaluate su dati mai visti. Prelevati 300 di ognuno e etichettati per testare il modello
-    """
-    test_inputs, test_targets = pick_audio_from_test_folders_and_return_x_and_y_for_testing(FEATURE_USED)
-    model = tf.keras.models.load_model(MODEL_PATH)
-    model.summary()
-    new_test_loss, new_test_acc, new_ = model.evaluate(test_inputs, test_targets)
-    print("\nLoss su nuovi dati: {}, Accuracy su nuovi dati: {}".format(new_test_loss, new_test_acc))
-    plot_loss_and_accuracy(new_test_loss, new_test_acc)
-    if test_loss is not None and test_acc is not None:
-        plot_new_test_results_and_compare_to_old_evaluate(test_loss, new_test_loss, test_acc, new_test_acc)
-    """
 
 if __name__ == "__main__":
     main()
