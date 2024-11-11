@@ -6,6 +6,7 @@ from pathlib import Path
 
 import librosa
 import matplotlib.pyplot as plt
+from matplotlib import cm
 import numpy as np
 import tensorflow as tf
 import visualkeras
@@ -16,7 +17,6 @@ import keras_tuner
 import cnn_hypermodel
 import resnet
 import spectrogram_pipeline
-from rnn import build_rnn_model
 
 DEFAULT_SAMPLE_RATE = 22050
 
@@ -326,10 +326,7 @@ def main():
 
         # (num_segmenti_audio, 13 coefficienti, num canali(che è uno))
         print(x_train.shape)
-        if 'lstm' in MODEL_USED:
-            input_shape = (x_train.shape[1], x_train.shape[2])
-        else:
-            input_shape = (x_train.shape[1], x_train.shape[2], 1)
+        input_shape = (x_train.shape[1], x_train.shape[2], 1)
 
         # codice duplicato
         if MODEL_USED == 'resnet':
@@ -343,17 +340,6 @@ def main():
                                                       monitor='val_loss', mode='min', save_best_only=True
                                                   )])
             test_loss, test_acc = resnet_model.evaluate(x_test, y_test)
-            plot_history_and_save_plot_to_file(history)
-        elif 'lstm' in MODEL_USED:
-            lstm_model = build_rnn_model(MODEL_USED, input_shape, LEARNING_RATE)
-            history = lstm_model.fit(x_train, y_train, epochs=EPOCHS,
-                                     validation_data=(x_val, y_val), batch_size=BATCH_SIZE,
-                                     callbacks=[tf.keras.callbacks.EarlyStopping(patience=10),
-                                                tf.keras.callbacks.ModelCheckpoint(
-                                                    filepath=MODEL_PATH,
-                                                    monitor='val_loss', mode='min', save_best_only=True
-                                                )])
-            test_loss, test_acc = lstm_model.evaluate(x_test, y_test)
             plot_history_and_save_plot_to_file(history)
         else:
             history, test_loss, test_acc, model_filepath = cnn_pipeline_from_tuner_to_test(input_shape, x_train, x_test,

@@ -11,7 +11,7 @@ import resnet
 
 LEARNING_RATE = 0.0001
 EPOCHS = 200
-LAYERS = 4
+LAYERS = 3
 MODEL_USED = 'cnn'
 MODEL_PATH = (f"models_for_norm\\model_{MODEL_USED}_{LAYERS if MODEL_USED =='cnn' else ''}_spectrogram_tf_data_api_lr0"
               f".0001_epochs200.keras")
